@@ -15,6 +15,7 @@ use bitcoin_hashes::Hash;
 use bitvm::bridge::transactions::kick_off_1;
 use clap::{Command, Arg};
 use actix_web::{web, App, HttpResponse, HttpServer};
+use actix_cors::Cors;
 
 
 // export RUST_MIN_STACK=8388608
@@ -47,7 +48,14 @@ async fn main() -> std::io::Result<()> {
         .service(api::send_take_1)
         .service(api::send_assert)
         .service(api::send_take_2)
-        .service(api::send_disprove))
+        .service(api::send_disprove)
+        .wrap(
+            Cors::default()
+                .allow_any_origin() 
+                .allow_any_method() 
+                .allow_any_header() 
+        )
+    )
     .bind((ip, port))?
     .run()
     .await

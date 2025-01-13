@@ -1,7 +1,6 @@
 # bitvm2-demo-api
 
-## build 
+## run 
 ```
-export RUST_MIN_STACK=8388608
-cargo build --release
+env RUST_MIN_STACK=8388608 cargo run
 ```
