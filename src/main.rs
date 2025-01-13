@@ -36,6 +36,7 @@ async fn main() -> std::io::Result<()> {
     let port = config::BIND_PORT;
     println!("\nListening to {ip}:{port} ......");
     HttpServer::new(|| App::new()
+        .service(api::get_tx_inputs_outpus)
         .service(api::get_user_workflow)
         .service(api::get_workflow_info)
         .service(api::request_btc)

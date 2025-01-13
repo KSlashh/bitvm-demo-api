@@ -1,9 +1,9 @@
 use actix_web::{get, post, web,  http::header::ContentType, HttpResponse, HttpServer, Responder};
-use bitcoin::{OutPoint, Txid, Address, Amount};
+use bitcoin::{Address, Amount, OutPoint, Transaction, Txid};
 use bitvm::bridge::transactions::{kick_off_1, peg_in_refund};
 use rusqlite::Connection;
 use serde::Serialize;
-use crate::{sql::{self, UserData}, transactions, utils};
+use crate::{sql::{self, UserData}, transactions, utils, config};
 
 #[derive(Serialize)]
 struct TxInput {
@@ -16,6 +16,70 @@ struct TxOutput {
     testnet_address: Address,
     regtest_address: Address,
     value: Amount,
+}
+
+#[get("get-tx-inputs-outputs/{txid}")]
+async fn get_tx_inputs_outpus(path: web::Path<String>) -> impl Responder {
+    #[derive(Serialize)]
+    struct ResponseStruct {
+        inputs: Vec<(Address, Amount)>,
+        outputs: Vec<(Address, Amount)>,
+    }
+
+    let txid = path.into_inner();
+    let txid = match utils::txid_from_str(&txid) {
+        Ok(v) => v,
+        Err(e) => return HttpResponse::BadRequest().body(e.to_string()),
+    };
+
+    let rpc = match utils::new_rpc_client().await {
+        Ok(v) => v,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+
+    let tx= match utils::get_raw_tx(&rpc, txid) {
+        Ok(v) => v,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+
+    let mut inputs = vec![];
+    let mut outputs = vec![];
+    let mut prev_tx_cache: (Txid, Transaction) = (txid, tx.clone());
+
+    for i in 0..tx.input.len() {
+        let prev_txid = tx.input[i].previous_output.txid;
+        if prev_txid != prev_tx_cache.0 {
+            prev_tx_cache = match utils::get_raw_tx(&rpc, prev_txid) {
+                Ok(v) => (prev_txid, v),
+                Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+            };
+        };
+        let prev_vout = tx.input[i].previous_output.vout;
+        let prev_outpoint = match prev_tx_cache.1.output.get(prev_vout as usize) {
+            Some(v) => v,
+            _ => return HttpResponse::InternalServerError().body("fail to get prev_txout"),
+        };
+        let input_i_addr = match Address::from_script(&prev_outpoint.script_pubkey, config::network()) {
+            Ok(v) => v,
+            Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        };
+        let input_i_amount = prev_outpoint.value;
+        inputs.push((input_i_addr, input_i_amount));
+    }
+    for i in 0..tx.output.len() {
+        let output_i_addr = match Address::from_script(&tx.output[i].script_pubkey, config::network()) {
+            Ok(v) => v,
+            Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        };
+        let output_i_amount = tx.output[i].value;
+        outputs.push((output_i_addr, output_i_amount));
+    }
+
+
+    let body = serde_json::to_string_pretty(&ResponseStruct{inputs, outputs}).unwrap();
+    HttpResponse::Ok()
+        .content_type(ContentType::json())
+        .body(body)
 }
 
 #[post("/get-user-workflow/{user_address}")]
