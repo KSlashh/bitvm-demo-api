@@ -3,6 +3,7 @@ use bitcoin::{Address, Amount, OutPoint, Transaction, Txid};
 use bitvm::bridge::{connectors::{connector_c, revealer}, transactions::{kick_off_1, peg_in_refund}};
 use rusqlite::Connection;
 use serde::Serialize;
+use log::{info, warn, error};
 use crate::{sql::{self, UserData}, transactions, utils, config};
 
 #[derive(Serialize)]
@@ -30,17 +31,26 @@ async fn get_named_inputs_outputs(path: web::Path<String>) -> impl Responder {
     let txid = path.into_inner();
     let txid = match utils::txid_from_str(&txid) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::BadRequest().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-named-inputs-outputs/{txid}: fail to decode txid: {}", e);
+            return HttpResponse::BadRequest().body(e.to_string())
+        }
     };
 
     let rpc = match utils::new_rpc_client().await {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-named-inputs-outputs/{txid}: fail to connect bitcoind: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let tx= match utils::get_raw_tx(&rpc, txid) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-named-inputs-outputs/{txid}: fail to get tx:{txid} : {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let mut inputs: Vec<(Address, Amount)> = vec![];
@@ -52,17 +62,26 @@ async fn get_named_inputs_outputs(path: web::Path<String>) -> impl Responder {
         if prev_txid != prev_tx_cache.0 {
             prev_tx_cache = match utils::get_raw_tx(&rpc, prev_txid) {
                 Ok(v) => (prev_txid, v),
-                Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+                Err(e) => { 
+                    error!("/get-named-inputs-outputs/{txid}: fail to get tx:{prev_txid} : {}", e);
+                    return HttpResponse::InternalServerError().body(e.to_string())
+                }
             };
         };
         let prev_vout = tx.input[i].previous_output.vout;
         let prev_outpoint = match prev_tx_cache.1.output.get(prev_vout as usize) {
             Some(v) => v,
-            _ => return HttpResponse::InternalServerError().body("fail to get prev_txout"),
+            _ => { 
+                error!("/get-named-inputs-outputs/{txid}: fail to get prev_txout");
+                return HttpResponse::InternalServerError().body("fail to get prev_txout")
+            },
         };
         let input_i_addr = match Address::from_script(&prev_outpoint.script_pubkey, config::network()) {
             Ok(v) => v,
-            Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+            Err(e) => { 
+                error!("/get-named-inputs-outputs/{txid}: fail to calc address: {}", e);
+                return HttpResponse::InternalServerError().body(e.to_string())
+            }
         };
         let input_i_amount = prev_outpoint.value;
         inputs.push((input_i_addr, input_i_amount));
@@ -70,7 +89,10 @@ async fn get_named_inputs_outputs(path: web::Path<String>) -> impl Responder {
     for i in 0..tx.output.len() {
         let output_i_addr = match Address::from_script(&tx.output[i].script_pubkey, config::network()) {
             Ok(v) => v,
-            Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+            Err(e) => { 
+                error!("/get-named-inputs-outputs/{txid}: fail to calc address: {}", e);
+                return HttpResponse::InternalServerError().body(e.to_string())
+            }
         };
         let output_i_amount = tx.output[i].value;
         outputs.push((output_i_addr, output_i_amount));
@@ -132,6 +154,10 @@ async fn get_named_inputs_outputs(path: web::Path<String>) -> impl Responder {
         )
     };
 
+    if tx_name == "Unidentified" {
+        warn!("/get-named-inputs-outputs/{txid}: unidentified tx");
+    };
+
     let inputs = input_names.into_iter()
         .zip(inputs.into_iter())
         .map(|(x,(y,z))| (x.to_string(),y,z))
@@ -145,6 +171,7 @@ async fn get_named_inputs_outputs(path: web::Path<String>) -> impl Responder {
     let tx_name = tx_name.to_string();
 
     let body = serde_json::to_string_pretty(&ResponseStruct{tx_name, inputs, outputs}).unwrap();
+    info!("/get-named-inputs-outputs/{txid}: ok");
     HttpResponse::Ok()
         .content_type(ContentType::json())
         .body(body)
@@ -161,17 +188,26 @@ async fn get_tx_inputs_outputs(path: web::Path<String>) -> impl Responder {
     let txid = path.into_inner();
     let txid = match utils::txid_from_str(&txid) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::BadRequest().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-tx-inputs-outputs/{txid}: fail to decode txid: {}", e);
+            return HttpResponse::BadRequest().body(e.to_string())
+        }
     };
 
     let rpc = match utils::new_rpc_client().await {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-tx-inputs-outputs/{txid}: fail to connect bitcoind: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let tx= match utils::get_raw_tx(&rpc, txid) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-tx-inputs-outputs/{txid}: fail to get tx:{txid} : {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let mut inputs = vec![];
@@ -183,17 +219,26 @@ async fn get_tx_inputs_outputs(path: web::Path<String>) -> impl Responder {
         if prev_txid != prev_tx_cache.0 {
             prev_tx_cache = match utils::get_raw_tx(&rpc, prev_txid) {
                 Ok(v) => (prev_txid, v),
-                Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+                Err(e) => { 
+                    error!("/get-tx-inputs-outputs/{txid}: fail to get tx:{prev_txid} : {}", e);
+                    return HttpResponse::InternalServerError().body(e.to_string())
+                }
             };
         };
         let prev_vout = tx.input[i].previous_output.vout;
         let prev_outpoint = match prev_tx_cache.1.output.get(prev_vout as usize) {
             Some(v) => v,
-            _ => return HttpResponse::InternalServerError().body("fail to get prev_txout"),
+            _ => { 
+                error!("/get-tx-inputs-outputs/{txid}: fail to get prev_txout");
+                return HttpResponse::InternalServerError().body("fail to get prev_txout")
+            },
         };
         let input_i_addr = match Address::from_script(&prev_outpoint.script_pubkey, config::network()) {
             Ok(v) => v,
-            Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+            Err(e) => { 
+                error!("/get-tx-inputs-outputs/{txid}: fail to calc address: {}", e);
+                return HttpResponse::InternalServerError().body(e.to_string())
+            }
         };
         let input_i_amount = prev_outpoint.value;
         inputs.push((input_i_addr, input_i_amount));
@@ -201,14 +246,17 @@ async fn get_tx_inputs_outputs(path: web::Path<String>) -> impl Responder {
     for i in 0..tx.output.len() {
         let output_i_addr = match Address::from_script(&tx.output[i].script_pubkey, config::network()) {
             Ok(v) => v,
-            Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+            Err(e) => { 
+                error!("/get-tx-inputs-outputs/{txid}: fail to calc address: {}", e);
+                return HttpResponse::InternalServerError().body(e.to_string())
+            }
         };
         let output_i_amount = tx.output[i].value;
         outputs.push((output_i_addr, output_i_amount));
     }
 
-
     let body = serde_json::to_string_pretty(&ResponseStruct{inputs, outputs}).unwrap();
+    info!("/get-tx-inputs-outputs/{txid}: ok");
     HttpResponse::Ok()
         .content_type(ContentType::json())
         .body(body)
@@ -225,37 +273,57 @@ async fn get_user_workflow(path: web::Path<String>) -> impl Responder {
     let user_addr = path.into_inner();
     let user_addr = match utils::address_from_str(&user_addr) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::BadRequest().body(e.to_string())
+        Err(e) => { 
+            error!("/get-user-workflow/{user_addr}: fail to deocde address: {}",e);
+            return HttpResponse::BadRequest().body(e.to_string())
+        }
     };
     let db = match sql::open_db() {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-user-workflow/{user_addr}: fail to connect db: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
     let workflow_id = match sql::get_user_id(&db, &user_addr) {
         Ok(id_option) => match id_option {
             Some(id) => id,
             _ => {
                 if let Err(e) = sql::new_user(&db, &user_addr) {
+                    error!("/get-user-workflow/{user_addr}: fail to new user workflow: {}",e);
                     return HttpResponse::InternalServerError().body(e.to_string())
                 };
                 match sql::get_user_id(&db, &user_addr) {
                     Ok(id) => id.unwrap(),
-                    Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+                    Err(e) => { 
+                        error!("/get-user-workflow/{user_addr}: fail to get user id after new_user: {}",e);
+                        return HttpResponse::InternalServerError().body(e.to_string())
+                    }
                 }
             }
         },
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-user-workflow/{user_addr}: fail to get user id: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
     let workflow = match sql::get_user_data(&db, workflow_id) {
         Ok(user_data_option) => { match user_data_option {
                 Some(data) => data,
-                _ => return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit")),
+                _ => { 
+                    error!("/get-user-workflow/{user_addr}: workflow {workflow_id} does not exisit");
+                    return HttpResponse::InternalServerError().body(format!("workflow {workflow_id} does not exisit"))
+                }
             }
         },
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-user-workflow/{user_addr}: fail to get user data: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let body = serde_json::to_string_pretty(&ResponseStruct{workflow_id,workflow}).unwrap();
+    info!("/get-user-workflow/{user_addr}: ok");
     HttpResponse::Ok()
         .content_type(ContentType::json())
         .body(body)
@@ -268,19 +336,29 @@ async fn get_workflow_info(path: web::Path<i32>) -> impl Responder {
     let workflow_id = path.into_inner();
     let db = match sql::open_db() {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-workflow-info/{workflow_id}: fail to connect db: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let user_data = match sql::get_user_data(&db, workflow_id) {
         Ok(user_data_option) => { match user_data_option {
                 Some(data) => data,
-                _ => return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit")),
+                _ => {
+                    error!("/get-workflow-info/{workflow_id}: workflow {workflow_id} does not exisit");
+                    return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit"))
+                }
             }
         },
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-workflow-info/{workflow_id}: fail to get user data: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let body = serde_json::to_string_pretty(&user_data).unwrap();
+    info!("/get-workflow-info/{workflow_id}: ok");
     HttpResponse::Ok()
         .content_type(ContentType::json())
         .body(body)
@@ -316,12 +394,18 @@ async fn request_btc(path: web::Path<String>) -> impl Responder {
     let user_addr = path.into_inner();
     let user_addr = match utils::address_from_str(&user_addr) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::BadRequest().body(e.to_string())
+        Err(e) => {
+            error!("/request-btc/{user_addr}: fail to deocde address: {}",e);
+            return HttpResponse::BadRequest().body(e.to_string())
+        }
     };
 
     let db = match sql::open_db() {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/request-btc/{user_addr}: fail to connect db: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let (workflow_id, mut user_data) = match sql::get_user_id(&db, &user_addr) {
@@ -331,15 +415,24 @@ async fn request_btc(path: web::Path<String>) -> impl Responder {
                     let user_data = match sql::get_user_data(&db, workflow_id) {
                         Ok(user_data_option) => { match user_data_option {
                                 Some(data) => data,
-                                _ => return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit")),
+                                _ => {
+                                    error!("/request-btc/{user_addr}: workflow {workflow_id} does not exisit");
+                                    return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit"))
+                                }
                             }
                         },
-                        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+                        Err(e) => { 
+                            error!("/request-btc/{user_addr}: fail to get user data: {}",e);
+                            return HttpResponse::InternalServerError().body(e.to_string())
+                        }
                     };
                     if user_data.status != sql::STATUS::EMPTY as u8 {
                         match create_new_user(&db, &user_addr) {
                             Ok(v) => v,
-                            Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+                            Err(e) => { 
+                                error!("/request-btc/{user_addr}: fail to create new user: {}",e);
+                                return HttpResponse::InternalServerError().body(e.to_string())
+                            }
                         }
                     } else {
                         (workflow_id, user_data)
@@ -348,21 +441,33 @@ async fn request_btc(path: web::Path<String>) -> impl Responder {
                 _ =>  {
                     match create_new_user(&db, &user_addr) {
                         Ok(v) => v,
-                        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+                        Err(e) => { 
+                            error!("/request-btc/{user_addr}: fail to create new user: {}",e);
+                            return HttpResponse::InternalServerError().body(e.to_string())
+                        }
                     }
                 },          
             }
         },
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/request-btc/{user_addr}: fail to get user id & data: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let rpc = match utils::new_rpc_client().await {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/request-btc/{user_addr}: fail to connect bitcoind: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
     let (faucet_outpoint_1, faucet_outpoint_2) = match transactions::faucet(&rpc, &user_addr) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/request-btc/{user_addr}: fail to send faucet tx: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     user_data.status = sql::STATUS::FAUCET as u8;
@@ -370,11 +475,13 @@ async fn request_btc(path: web::Path<String>) -> impl Responder {
     user_data.faucet_2 = Some((faucet_outpoint_2.txid, faucet_outpoint_2.vout));
 
     if let Err(e) = sql::update_user_data(&db, workflow_id, &user_data) {
+        error!("/request-btc/{user_addr}: fail to update user data: {}", e);
         return HttpResponse::InternalServerError().body(e.to_string())
     }
 
     let faucet_txid = faucet_outpoint_1.txid;
     let body = serde_json::to_string_pretty(&ResponseStruct{workflow_id, faucet_txid}).unwrap();
+    info!("/request-btc/{user_addr}: ok");
     HttpResponse::Ok()
         .content_type(ContentType::json())
         .body(body)
@@ -392,42 +499,64 @@ async fn get_unsigned_pegin_tx(path: web::Path<i32>) -> impl Responder {
 
     let db = match sql::open_db() {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-unsigned-pegin-tx/{workflow_id}: fail to connect db: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let user_data = match sql::get_user_data(&db, workflow_id) {
         Ok(user_data_option) => { match user_data_option {
                 Some(data) => data,
-                _ => return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit")),
+                _ => {
+                    error!("/get-unsigned-pegin-tx/{workflow_id}: workflow {workflow_id} does not exisit");
+                    return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit"))
+                }
             }
         },
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-unsigned-pegin-tx/{workflow_id}: fail to get user data: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     if user_data.status != sql::STATUS::FAUCET as u8 {
+        error!("/get-unsigned-pegin-tx/{workflow_id}: workflow {workflow_id} not currently at faucet stage");
         return HttpResponse::BadRequest().body(format!("workflow {workflow_id} not currently at faucet stage"))
     };
 
     let (faucet_1_txid, faucet_1_vout) = match user_data.faucet_1 {
         Some(v) => v,
-        _ => return HttpResponse::InternalServerError().body("workflow {workflow_id} missing faucet_1_txid".to_string()),
+        _ => {
+            error!("/get-unsigned-pegin-tx/{workflow_id}: workflow {workflow_id} missing faucet_1_txid");
+            return HttpResponse::InternalServerError().body("workflow {workflow_id} missing faucet_1_txid".to_string())
+        }
     };
 
     let rpc = match utils::new_rpc_client().await {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-unsigned-pegin-tx/{workflow_id}: fail to connect bitcoind: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let pegin_tx = match transactions::peg_in_prepare(&rpc, faucet_1_txid, faucet_1_vout) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-unsigned-pegin-tx/{workflow_id}: fail to prepare pegin tx: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let txid = pegin_tx.input[0].previous_output.txid;
     let vout = pegin_tx.input[0].previous_output.vout;
     let value = match utils::get_utxo_value(&rpc, txid, vout) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-unsigned-pegin-tx/{workflow_id}: fail to get_utxo_value: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
     let input = TxInput {
         txid,
@@ -449,6 +578,7 @@ async fn get_unsigned_pegin_tx(path: web::Path<i32>) -> impl Responder {
     };
 
     let body = serde_json::to_string_pretty(&ResponseStruct{input, outputs}).unwrap();
+    info!("/get-unsigned-pegin-tx/{workflow_id}: ok");
     HttpResponse::Ok()
         .content_type(ContentType::json())
         .body(body)
@@ -464,24 +594,37 @@ async fn post_pegin_txid(path: web::Path<(i32, String)>) -> impl Responder {
     let (workflow_id, pegin_txid) = path.into_inner();
     let pegin_txid = match utils::txid_from_str(&pegin_txid) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::BadRequest().body(e.to_string()),
+        Err(e) => { 
+            error!("/post-pegin-txid/{workflow_id}/{pegin_txid}: fail to decode txid: {}", e);
+            return HttpResponse::BadRequest().body(e.to_string())
+        }
     };
 
     let db = match sql::open_db() {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/post-pegin-txid/{workflow_id}/{pegin_txid}: fail to connect db: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let mut user_data = match sql::get_user_data(&db, workflow_id) {
         Ok(user_data_option) => { match user_data_option {
                 Some(data) => data,
-                _ => return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit")),
+                _ => {
+                    error!("/post-pegin-txid/{workflow_id}/{pegin_txid}: workflow {workflow_id} does not exisit");
+                    return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit"))
+                }
             }
         },
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/post-pegin-txid/{workflow_id}/{pegin_txid}: fail to get user data: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     if user_data.status != sql::STATUS::FAUCET as u8 {
+        error!("/post-pegin-txid/{workflow_id}/{pegin_txid}: workflow {workflow_id} not currently at faucet stage");
         return HttpResponse::BadRequest().body(format!("workflow {workflow_id} not currently at faucet stage"))
     };
 
@@ -489,10 +632,12 @@ async fn post_pegin_txid(path: web::Path<(i32, String)>) -> impl Responder {
     user_data.pegin = Some(pegin_txid);
 
     if let Err(e) = sql::update_user_data(&db, workflow_id, &user_data) {
+        error!("/post-pegin-txid/{workflow_id}/{pegin_txid}: fail to update user data: {}", e);
         return HttpResponse::InternalServerError().body(e.to_string())
     }
 
     let body = serde_json::to_string_pretty(&ResponseStruct{success: true}).unwrap();
+    info!("/post-pegin-txid/{workflow_id}/{pegin_txid}: ok");
     HttpResponse::Ok()
         .content_type(ContentType::json())
         .body(body)
@@ -508,30 +653,47 @@ async fn post_fake_index(path: web::Path<(i32, u32)>) -> impl Responder {
     let (workflow_id, fake_index) = path.into_inner();
     let db = match sql::open_db() {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => {
+            error!("/post-fake-index/{workflow_id}/{fake_index}: fail to connect db: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let mut user_data = match sql::get_user_data(&db, workflow_id) {
         Ok(user_data_option) => { match user_data_option {
                 Some(data) => data,
-                _ => return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit")),
+                _ => {
+                    error!("/post-fake-index/{workflow_id}/{fake_index}: workflow {workflow_id} does not exisit");
+                    return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit"))
+                }
             }
         },
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => {
+            error!("/post-fake-index/{workflow_id}/{fake_index}: fail to get user data: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     if user_data.status != sql::STATUS::PEGIN as u8 {
+        error!("/post-fake-index/{workflow_id}/{fake_index}: workflow {workflow_id} not currently at pegin stage");
         return HttpResponse::BadRequest().body(format!("workflow {workflow_id} not currently at pegin stage"))
     };
 
-    let fake_index = if fake_index > 614 { 1 } else {fake_index };
+    let fake_index = if fake_index > 614 { 
+        warn!("/post-fake-index/{workflow_id}/{fake_index}: index out of range");
+        1 
+    } else {
+        fake_index 
+    };
     user_data.fake_index = Some(fake_index);
 
     if let Err(e) = sql::update_user_data(&db, workflow_id, &user_data) {
+        error!("/post-fake-index/{workflow_id}/{fake_index}: fail to update user data: {}",e);
         return HttpResponse::InternalServerError().body(e.to_string())
     }
 
     let body = serde_json::to_string_pretty(&ResponseStruct{success:true}).unwrap();
+    info!("/post-fake-index/{workflow_id}/{fake_index}: ok");
     HttpResponse::Ok()
         .content_type(ContentType::json())
         .body(body)
@@ -549,42 +711,61 @@ async fn get_unsigned_kickoff1_tx(path: web::Path<i32>) -> impl Responder {
 
     let db = match sql::open_db() {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-unsigned-kickoff1-tx/{workflow_id}: fail to connect db: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let user_data = match sql::get_user_data(&db, workflow_id) {
         Ok(user_data_option) => { match user_data_option {
                 Some(data) => data,
-                _ => return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit")),
+                _ => {
+                    error!("/get-unsigned-kickoff1-tx/{workflow_id}: workflow {workflow_id} does not exisit");
+                    return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit"))
+                }
             }
         },
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
 
     if user_data.status != sql::STATUS::PEGIN as u8 {
+        error!("/get-unsigned-kickoff1-tx/{workflow_id}: workflow {workflow_id} not currently at pegin stage");
         return HttpResponse::BadRequest().body(format!("workflow {workflow_id} not currently at pegin stage"))
     };
 
     let (faucet_2_txid, faucet_2_vout) = match user_data.faucet_2 {
         Some(v) => v,
-        _ => return HttpResponse::InternalServerError().body("workflow {workflow_id} missing faucet_2_txid".to_string()),
+        _ => {
+            error!("/get-unsigned-kickoff1-tx/{workflow_id}: workflow {workflow_id} missing faucet_2_txid");
+            return HttpResponse::InternalServerError().body("workflow {workflow_id} missing faucet_2_txid".to_string())
+        }
     };
 
     let rpc = match utils::new_rpc_client().await {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-unsigned-kickoff1-tx/{workflow_id}: fail to connect bitcoind: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let kickoff_1_tx = match transactions::kickoff_1_prepare(&rpc, faucet_2_txid, faucet_2_vout) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-unsigned-kickoff1-tx/{workflow_id}: fail to prepare kickoff1 tx: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let txid = kickoff_1_tx.input[0].previous_output.txid;
     let vout = kickoff_1_tx.input[0].previous_output.vout;
     let value = match utils::get_utxo_value(&rpc, txid, vout) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/get-unsigned-kickoff1-tx/{workflow_id}: fail to get_utxo_value: {}",e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
     let input = TxInput {
         txid,
@@ -607,6 +788,7 @@ async fn get_unsigned_kickoff1_tx(path: web::Path<i32>) -> impl Responder {
     };
 
     let body = serde_json::to_string_pretty(&ResponseStruct{input, outputs}).unwrap();
+    info!("/get-unsigned-kickoff1-tx/{workflow_id}: ok");
     HttpResponse::Ok()
         .content_type(ContentType::json())
         .body(body)
@@ -622,53 +804,75 @@ async fn send_kickoff_2(path: web::Path<(i32, String)>) -> impl Responder {
     let (workflow_id, kickoff_1_txid) = path.into_inner();
     let kick_off_1_txid = match utils::txid_from_str(&kickoff_1_txid) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::BadRequest().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: fail to decode txid: {}", e);
+            return HttpResponse::BadRequest().body(e.to_string())
+        }
     };
 
     let db = match sql::open_db() {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: fail to connect db: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let mut user_data = match sql::get_user_data(&db, workflow_id) {
         Ok(user_data_option) => { match user_data_option {
                 Some(data) => data,
-                _ => return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit")),
+                _ => {
+                    error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: workflow {workflow_id} does not exisit");
+                    return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit"))
+                }
             }
         },
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: fail to get user data: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     if user_data.status == sql::STATUS::PEGIN as u8 {
         user_data.status = sql::STATUS::KICKOFF1 as u8;
     } else if user_data.status != sql::STATUS::KICKOFF1 as u8 {
+        error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: workflow {workflow_id} not currently at pegin/kickoff1 stage");
         return HttpResponse::BadRequest().body(format!("workflow {workflow_id} not currently at pegin/kickoff1 stage"))
     };
 
     user_data.kickoff_1 = Some(kick_off_1_txid);
 
     if let Err(e) = sql::update_user_data(&db, workflow_id, &user_data) {
+        error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: fail to update user data: {}", e);
         return HttpResponse::InternalServerError().body(e.to_string())
     }
 
     let rpc = match utils::new_rpc_client().await {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: fail to connect bitcoind: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
     let bitcom_lock_scripts = transactions::get_bitcom_lock_scripts();
     let kick_off_2_txid = match transactions::kick_off_2(&rpc, kick_off_1_txid, &bitcom_lock_scripts) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: fail to send kickoff2 tx: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     user_data.status = sql::STATUS::KICKOFF2 as u8;
     user_data.kickoff_2 = Some(kick_off_2_txid);
 
     if let Err(e) = sql::update_user_data(&db, workflow_id, &user_data) {
+        error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: fail to update user data: {}", e);
         return HttpResponse::InternalServerError().body(e.to_string())
     }
 
     let body = serde_json::to_string_pretty(&ResponseStruct{kick_off_2_txid}).unwrap();
+    info!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: ok");
     HttpResponse::Ok()
         .content_type(ContentType::json())
         .body(body)
@@ -684,44 +888,65 @@ async fn send_challenge(path: web::Path<i32>) -> impl Responder {
     let workflow_id = path.into_inner();
     let db = match sql::open_db() {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-challenge/{workflow_id}: fail to connect db: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let mut user_data = match sql::get_user_data(&db, workflow_id) {
         Ok(user_data_option) => { match user_data_option {
                 Some(data) => data,
-                _ => return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit")),
+                _ => {
+                    error!("/send-challenge/{workflow_id}: workflow {workflow_id} does not exisit");
+                    return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit"))
+                }
             }
         },
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-challenge/{workflow_id}: fail to get user data: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     if user_data.status != sql::STATUS::KICKOFF2 as u8 {
+        error!("/send-challenge/{workflow_id}: workflow {workflow_id} not currently at kickoff2 stage");
         return HttpResponse::BadRequest().body(format!("workflow {workflow_id} not currently at kickoff2 stage"))
     };
 
     let kick_off_1_txid = match user_data.kickoff_1 {
         Some(txid) => txid,
-        _ => return HttpResponse::InternalServerError().body("workflow {workflow_id} missing kickoff_1_txid".to_string()),
+        _ => {
+            error!("/send-challenge/{workflow_id}: workflow {workflow_id} missing kickoff_1_txid");
+            return HttpResponse::InternalServerError().body("workflow {workflow_id} missing kickoff_1_txid".to_string())
+        }
     };
 
     let rpc = match utils::new_rpc_client().await {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-challenge/{workflow_id}: fail to connect bitcoind: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
     let challenge_txid = match transactions::challenge(&rpc, kick_off_1_txid) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-challenge/{workflow_id}: fail to send challenge tx: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     user_data.status = sql::STATUS::CHALLENGE as u8;
     user_data.challenge = Some(challenge_txid);
 
     if let Err(e) = sql::update_user_data(&db, workflow_id, &user_data) {
+        error!("/send-challenge/{workflow_id}: fail to update user data: {}", e);
         return HttpResponse::InternalServerError().body(e.to_string())
     }
 
     let body = serde_json::to_string_pretty(&ResponseStruct{challenge_txid}).unwrap();
+    info!("/send-challenge/{workflow_id}: ok");
     HttpResponse::Ok()
         .content_type(ContentType::json())
         .body(body)
@@ -737,61 +962,94 @@ async fn send_take_1(path: web::Path<i32>) -> impl Responder {
     let workflow_id = path.into_inner();
     let db = match sql::open_db() {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-take1/{workflow_id}: fail to connect db: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let mut user_data = match sql::get_user_data(&db, workflow_id) {
         Ok(user_data_option) => { match user_data_option {
                 Some(data) => data,
-                _ => return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit")),
+                _ => {
+                    error!("/send-take1/{workflow_id}: workflow {workflow_id} does not exisit");
+                    return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit"))
+                }
             }
         },
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-take1/{workflow_id}: fail to get user data: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     if user_data.status != sql::STATUS::KICKOFF2 as u8 {
+        error!("/send-take1/{workflow_id}: workflow {workflow_id} not currently at kickoff2 stage");
         return HttpResponse::BadRequest().body(format!("workflow {workflow_id} not currently at kickoff2 stage"))
     };
 
     let peg_in_txid = match user_data.pegin {
         Some(txid) => txid,
-        _ => return HttpResponse::InternalServerError().body("workflow {workflow_id} missing pegin_txid".to_string()),
+        _ => {
+            error!("/send-take1/{workflow_id}: workflow {workflow_id} missing pegin_txid");
+            return HttpResponse::InternalServerError().body("workflow {workflow_id} missing pegin_txid".to_string())
+        }
     };
     let kick_off_1_txid = match user_data.kickoff_1 {
         Some(txid) => txid,
-        _ => return HttpResponse::InternalServerError().body("workflow {workflow_id} missing kickoff_1_txid".to_string()),
+        _ => {
+            error!("/send-take1/{workflow_id}: workflow {workflow_id} missing kickoff1_txid");
+            return HttpResponse::InternalServerError().body("workflow {workflow_id} missing kickoff1_txid".to_string())
+        }
     };
     let kick_off_2_txid = match user_data.kickoff_2 {
         Some(txid) => txid,
-        _ => return HttpResponse::InternalServerError().body("workflow {workflow_id} missing kickoff_2_txid".to_string()),
+        _ => {
+            error!("/send-take1/{workflow_id}: workflow {workflow_id} missing kickoff2_txid");
+            return HttpResponse::InternalServerError().body("workflow {workflow_id} missing kickoff2_txid".to_string())
+        }
     };
 
     let user_address = match sql::get_user_address(&db, workflow_id) {
         Ok(user_addr_option) => { match user_addr_option {
                 Some(addr) => addr,
-                _ => return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit")),
+                _ => {
+                    error!("/send-take1/{workflow_id}: workflow {workflow_id} does not exisit");
+                    return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit"))
+                }
             }
         },
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-take1/{workflow_id}: fail to get user address: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let rpc = match utils::new_rpc_client().await {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-take1/{workflow_id}: fail to connect bitcoind: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
     let take_1_txid = match transactions::take_1(&rpc, peg_in_txid, kick_off_1_txid, kick_off_2_txid, user_address) {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-take1/{workflow_id}: fail to send take1 tx: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     user_data.status = sql::STATUS::TAKE1 as u8;
     user_data.take_1 = Some(take_1_txid);
 
     if let Err(e) = sql::update_user_data(&db, workflow_id, &user_data) {
+        error!("/send-take1/{workflow_id}: fail to update user data: {}", e);
         return HttpResponse::InternalServerError().body(e.to_string())
     }
 
     let body = serde_json::to_string_pretty(&ResponseStruct{take_1_txid}).unwrap();
+    info!("/send-take1/{workflow_id}: ok");
     HttpResponse::Ok()
         .content_type(ContentType::json())
         .body(body)
@@ -807,25 +1065,38 @@ async fn send_assert(path: web::Path<i32>) -> impl Responder {
     let workflow_id = path.into_inner();
     let db = match sql::open_db() {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-assert/{workflow_id}: fail to connect db: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let user_data = match sql::get_user_data(&db, workflow_id) {
         Ok(user_data_option) => { match user_data_option {
                 Some(data) => data,
-                _ => return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit")),
+                _ => {
+                    error!("/send-assert/{workflow_id}: workflow {workflow_id} does not exisit");
+                    return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit"))
+                }
             }
         },
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-assert/{workflow_id}: fail to get user data: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     if user_data.status != sql::STATUS::CHALLENGE as u8 {
+        error!("/send-assert/{workflow_id}: workflow {workflow_id} not currently at challenge stage");
         return HttpResponse::BadRequest().body(format!("workflow {workflow_id} not currently at challenge stage"))
     };
 
     let _kick_off_2_txid = match user_data.kickoff_2 {
         Some(txid) => txid,
-        _ => return HttpResponse::InternalServerError().body("workflow {workflow_id} missing kickoff_2_txid".to_string()),
+        _ => {
+            error!("/send-assert/{workflow_id}: workflow {workflow_id} missing kickoff_2_txid");
+            return HttpResponse::InternalServerError().body("workflow {workflow_id} missing kickoff_2_txid".to_string())
+        }
     };
 
     async fn long_task(workflow_id: i32) -> Result<Txid, String> {
@@ -867,7 +1138,6 @@ async fn send_assert(path: web::Path<i32>) -> impl Responder {
         }
     }
 
-
     let task = tokio::spawn(async move {
         long_task(workflow_id).await
     });
@@ -876,15 +1146,18 @@ async fn send_assert(path: web::Path<i32>) -> impl Responder {
         Ok(res) => match res {
             Ok(assert_txid) => {
                 let body = serde_json::to_string_pretty(&ResponseStruct{assert_txid}).unwrap();
+                info!("/send-assert/{workflow_id}: ok");
                 HttpResponse::Ok()
                     .content_type(ContentType::json())
                     .body(body)
             },
             Err(e) => {
+                error!("/send-assert/{workflow_id}: fail to prepare & send assert tx: {}",e);
                 HttpResponse::InternalServerError().body(e.to_string())
             }
         },
         Err(e) => {
+            error!("/send-assert/{workflow_id}: fail while run send assert task: {}",e);
             HttpResponse::InternalServerError().body(e.to_string())
         }
     }
@@ -900,28 +1173,44 @@ async fn send_take_2(path: web::Path<i32>) -> impl Responder {
     let workflow_id = path.into_inner();
     let db = match sql::open_db() {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-take2/{workflow_id}: fail to connect db: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let user_data = match sql::get_user_data(&db, workflow_id) {
         Ok(user_data_option) => { match user_data_option {
                 Some(data) => data,
-                _ => return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit")),
+                _ => {
+                    error!("/send-take2/{workflow_id}: workflow {workflow_id} does not exisit");
+                    return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit"))
+                }
             }
         },
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-take2/{workflow_id}: fail to get user data: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     if user_data.status != sql::STATUS::ASSERT as u8 {
+        error!("/send-take2/{workflow_id}: workflow {workflow_id} not currently at assert stage");
         return HttpResponse::BadRequest().body(format!("workflow {workflow_id} not currently at assert stage"))
     };
     let _peg_in_txid = match user_data.pegin {
         Some(txid) => txid,
-        _ => return HttpResponse::InternalServerError().body("workflow {workflow_id} missing pegin_txid".to_string()),
+        _ => {
+            error!("/send-take2/{workflow_id}: workflow {workflow_id} missing pegin_txid");
+            return HttpResponse::InternalServerError().body("workflow {workflow_id} missing pegin_txid".to_string())
+        }
     };
     let _assert_txid = match user_data.assert {
         Some(txid) => txid,
-        _ => return HttpResponse::InternalServerError().body("workflow {workflow_id} missing assert_txid".to_string()),
+        _ => {
+            error!("/send-take2/{workflow_id}: workflow {workflow_id} missing assert_txid");
+            return HttpResponse::InternalServerError().body("workflow {workflow_id} missing assert_txid".to_string())
+        }
     };
 
     async fn long_task(workflow_id: i32) -> Result<Txid, String> {
@@ -982,15 +1271,18 @@ async fn send_take_2(path: web::Path<i32>) -> impl Responder {
         Ok(res) => match res {
             Ok(take_2_txid) => {
                 let body = serde_json::to_string_pretty(&ResponseStruct{take_2_txid}).unwrap();
+                info!("/send-take2/{workflow_id}: ok");
                 HttpResponse::Ok()
                     .content_type(ContentType::json())
                     .body(body)
             },
             Err(e) => {
+                error!("/send-take2/{workflow_id}: fail to prepare & send take2: {}",e);
                 HttpResponse::InternalServerError().body(e.to_string())
             }
         },
         Err(e) => {
+            error!("/send-take2/{workflow_id}: fail while run send take2 task: {}",e);
             HttpResponse::InternalServerError().body(e.to_string())
         }
     }
@@ -1006,24 +1298,37 @@ async fn send_disprove(path: web::Path<i32>) -> impl Responder {
     let workflow_id = path.into_inner();
     let db = match sql::open_db() {
         Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-disprove/{workflow_id}: fail to connect db: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     let user_data = match sql::get_user_data(&db, workflow_id) {
         Ok(user_data_option) => { match user_data_option {
                 Some(data) => data,
-                _ => return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit")),
+                _ => {
+                    error!("/send-disprove/{workflow_id}: workflow {workflow_id} does not exisit");
+                    return HttpResponse::BadRequest().body(format!("workflow {workflow_id} does not exisit"))
+                }
             }
         },
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => { 
+            error!("/send-disprove/{workflow_id}: fail to get user data: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
     };
 
     if user_data.status != sql::STATUS::ASSERT as u8 {
+        error!("/send-disprove/{workflow_id}: workflow {workflow_id} not currently at assert stage");
         return HttpResponse::BadRequest().body(format!("workflow {workflow_id} not currently at assert stage"))
     };
     let _assert_txid = match user_data.assert {
         Some(txid) => txid,
-        _ => return HttpResponse::InternalServerError().body("workflow {workflow_id} missing assert_txid".to_string()),
+        _ => {
+            error!("/send-disprove/{workflow_id}: workflow {workflow_id} missing assert_txid");
+            return HttpResponse::InternalServerError().body("workflow {workflow_id} missing assert_txid".to_string())
+        }
     };
 
     async fn long_task(workflow_id: i32) -> Result<Txid, String> {
@@ -1071,15 +1376,18 @@ async fn send_disprove(path: web::Path<i32>) -> impl Responder {
         Ok(res) => match res {
             Ok(disprove_txid) => {
                 let body = serde_json::to_string_pretty(&ResponseStruct{disprove_txid}).unwrap();
+                info!("/send-disprove/{workflow_id}: ok");
                 HttpResponse::Ok()
                     .content_type(ContentType::json())
                     .body(body)
             },
             Err(e) => {
+                error!("/send-disprove/{workflow_id}: fail to prepare & send disprove tx: {}",e);
                 HttpResponse::InternalServerError().body(e.to_string())
             }
         },
         Err(e) => {
+            error!("/send-disprove/{workflow_id}: fail while run send disprove task: {}",e);
             HttpResponse::InternalServerError().body(e.to_string())
         }
     }

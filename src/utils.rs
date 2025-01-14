@@ -20,6 +20,7 @@ use bitvm::treepp::*;
 use bitvm::bridge::scripts;
 use bitvm::bridge::contexts::base;
 use crate::config;
+use log::{info, error};
 
 pub fn address_from_str(addr_str: &str) -> Result<Address, String> {
     match Address::from_str(addr_str) {
@@ -43,18 +44,18 @@ pub fn txid_from_str(txid_str: &str) -> Result<Txid, String> {
 }
 
 pub async fn check_rpc() -> bool {
-    println!("\nChecking if bitcoind rpc is working......");
+    info!("Checking if bitcoind rpc is working......");
     let rpc = match new_rpc_client().await {
         Ok(v) => v,
         Err(e) => { 
-            println!("fail to connect: {}",e);
+            error!("fail to connect: {}",e);
             return false
         },
     };
     match mint_block(&rpc, 1) {
         Ok(_) => true,
         Err(e) => { 
-            println!("fail to mint block: {}",e);
+            error!("fail to mint block: {}",e);
             false
         },
     }

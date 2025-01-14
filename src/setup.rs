@@ -6,11 +6,12 @@ use bitvm::bridge::groth16;
 use bitvm::chunk;
 use bitvm::groth16::g16;
 use bitvm::treepp::*;
+use log::{info, warn};
 use crate::{config, utils};
 
 pub fn check_setup() -> bool {
     let mut flag = true;
-    println!("\nChecking if initialization is complete......");
+    info!("Checking if initialization is complete......");
 
     // let compile_dir = config::COMPILE_PATH;
     // let index = g16::N_TAPLEAVES - 1;
@@ -26,9 +27,9 @@ pub fn check_setup() -> bool {
     //     Err(_) => false,
     // };
     // if already_compiled {
-    //     println!("Compile is done :)");
+    //     info!("Compile is done :)");
     // } else {
-    //     println!("Compile is not done yet :(");
+    //     warn!("Compile is not done yet :(");
     //     flag = false;
     // }
     
@@ -46,9 +47,9 @@ pub fn check_setup() -> bool {
         Err(_) => false,
     };
     if already_generated {
-        println!("Generate tapscripts is done :)");
+        info!("Generate tapscripts is done :)");
     } else {
-        println!("Generate tapscripts is not done yet :(");
+        warn!("Generate tapscripts is not done yet :(");
         flag = false;
     };
 
@@ -68,9 +69,9 @@ pub fn check_setup() -> bool {
         },
     };
     if already_signed {
-        println!("Generate WotsSignature is done :)");
+        info!("Generate WotsSignature is done :)");
     } else {
-        println!("Generate WotsSignature is not done yet :(");
+        warn!("Generate WotsSignature is not done yet :(");
         flag = false;
     };
 
@@ -78,32 +79,32 @@ pub fn check_setup() -> bool {
 }
 
 pub fn setup_all() {
-    println!("\ncompiling...... (this may take serveral minutes)");
+    info!("compiling...... (this may take serveral minutes)");
     let now = SystemTime::now();
     compile();
     let duration = match now.elapsed() {
         Ok(v) => v.as_secs().to_string(),
         Err(_) => "?".to_string(),
     };
-    println!("done. [{duration} s]");
+    info!("done. [{duration} s]");
 
-    println!("\ngenerating tapscripts...... (this may take serveral minutes)");
+    info!("generating tapscripts...... (this may take serveral minutes)");
     let now = SystemTime::now();
     generate_tapscripts();
     let duration = match now.elapsed() {
         Ok(v) => v.as_secs().to_string(),
         Err(_) => "?".to_string(),
     };
-    println!("done. [{duration} s]");
+    info!("done. [{duration} s]");
 
-    println!("\ngenerating wots_signatures...... (this may take serveral minutes)");
+    info!("generating wots_signatures...... (this may take serveral minutes)");
     let now = SystemTime::now();
     generate_signed_assertions();
     let duration = match now.elapsed() {
         Ok(v) => v.as_secs().to_string(),
         Err(_) => "?".to_string(),
     };
-    println!("done. [{duration} s]");
+    info!("done. [{duration} s]");
 }
 
 pub fn compile() { 
