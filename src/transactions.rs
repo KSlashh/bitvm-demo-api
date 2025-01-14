@@ -36,6 +36,7 @@ use bitvm::bridge::{
         disprove::DisproveTransaction,
     }
 };
+use crate::utils::wait_tx;
 use crate::{config::{self, network}, utils};
 
 pub fn faucet(rpc: &Client, user_addr: &Address) -> Result<(OutPoint, OutPoint), String> {
@@ -405,7 +406,7 @@ pub fn challenge(rpc: &Client, kick_off_1_txid: Txid) -> Result<Txid, String> {
 }
 
 // return: ((assert_txid, assert_tx_weight), connector_c_address)
-pub fn assert(
+pub async fn assert(
     rpc: &Client, 
     kick_off_2_txid: Txid, 
     bitcom_lock_scripts: &Vec<Script>,
@@ -461,7 +462,9 @@ pub fn assert(
     let tx = assert_tx.finalize();
     let assert_txid = tx.compute_txid();
     let _ = utils::broadcast_tx(rpc, &tx);
+    wait_tx().await;
     let _ = utils::mint_block(rpc, 1);
+    wait_tx().await;
     match utils::validate_tx(rpc, assert_txid) {
         Ok(valid) => {
             if !valid { 
@@ -473,7 +476,7 @@ pub fn assert(
     Ok((assert_txid, connector_c_address))
 }   
 
-// return: (take_2_txid, take_2_tx_weight)
+// return: take_2_txid
 pub fn take_2(
     rpc: &Client, 
     peg_in_txid: Txid, 
@@ -733,4 +736,12 @@ fn get_revealers<'a>(n_of_n_taproot_public_key: &XOnlyPublicKey, bitcom_lock_scr
         revealers.push(revealer);
     }
     revealers
+}
+
+#[test]
+fn test_revealers() {
+    let operator_context = config::get_operator_context();
+    let bitcom_lock_scripts = get_bitcom_lock_scripts();
+    let revealers = get_revealers(&operator_context.n_of_n_taproot_public_key, &bitcom_lock_scripts);
+    dbg!(revealers.len());
 }

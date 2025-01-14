@@ -1,6 +1,6 @@
 use actix_web::{get, post, web,  http::header::ContentType, HttpResponse, HttpServer, Responder};
 use bitcoin::{Address, Amount, OutPoint, Transaction, Txid};
-use bitvm::bridge::transactions::{kick_off_1, peg_in_refund};
+use bitvm::bridge::{connectors::{connector_c, revealer}, transactions::{kick_off_1, peg_in_refund}};
 use rusqlite::Connection;
 use serde::Serialize;
 use crate::{sql::{self, UserData}, transactions, utils, config};
@@ -18,8 +18,140 @@ struct TxOutput {
     value: Amount,
 }
 
+#[get("get-named-inputs-outputs/{txid}")]
+async fn get_named_inputs_outputs(path: web::Path<String>) -> impl Responder {
+    #[derive(Serialize)]
+    struct ResponseStruct {
+        tx_name: String,
+        inputs: Vec<(String, Address, Amount)>,
+        outputs: Vec<(String, Address, Amount)>,
+    }
+
+    let txid = path.into_inner();
+    let txid = match utils::txid_from_str(&txid) {
+        Ok(v) => v,
+        Err(e) => return HttpResponse::BadRequest().body(e.to_string()),
+    };
+
+    let rpc = match utils::new_rpc_client().await {
+        Ok(v) => v,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+
+    let tx= match utils::get_raw_tx(&rpc, txid) {
+        Ok(v) => v,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+
+    let mut inputs: Vec<(Address, Amount)> = vec![];
+    let mut outputs: Vec<(Address, Amount)> = vec![];
+    let mut prev_tx_cache: (Txid, Transaction) = (txid, tx.clone());
+
+    for i in 0..tx.input.len() {
+        let prev_txid = tx.input[i].previous_output.txid;
+        if prev_txid != prev_tx_cache.0 {
+            prev_tx_cache = match utils::get_raw_tx(&rpc, prev_txid) {
+                Ok(v) => (prev_txid, v),
+                Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+            };
+        };
+        let prev_vout = tx.input[i].previous_output.vout;
+        let prev_outpoint = match prev_tx_cache.1.output.get(prev_vout as usize) {
+            Some(v) => v,
+            _ => return HttpResponse::InternalServerError().body("fail to get prev_txout"),
+        };
+        let input_i_addr = match Address::from_script(&prev_outpoint.script_pubkey, config::network()) {
+            Ok(v) => v,
+            Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        };
+        let input_i_amount = prev_outpoint.value;
+        inputs.push((input_i_addr, input_i_amount));
+    }
+    for i in 0..tx.output.len() {
+        let output_i_addr = match Address::from_script(&tx.output[i].script_pubkey, config::network()) {
+            Ok(v) => v,
+            Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        };
+        let output_i_amount = tx.output[i].value;
+        outputs.push((output_i_addr, output_i_amount));
+    }
+
+    let revealers = vec!["revealer"; 59];
+    let (tx_name, input_names, output_names) = match (inputs.len(), outputs.len()) {
+        (1,1) => (
+            "Peg-In",
+            vec!["User"],
+            vec!["connector-0"],
+        ),
+        (1,3) => (
+            "Kickoff-1",
+            vec!["Operator"],
+            vec!["connector-a","connector-1","connector-2"],
+        ),
+        (1,61) => (
+            "Kickoff-2",
+            vec!["connector-1"],
+            [vec!["connector-3","connector-b"], revealers].concat(),
+        ),
+        (2,1) => (
+            "Challenge",
+            vec!["connector-a","Challenger"],
+            vec!["Operator"],
+        ),
+        (60,3) => (
+            "Assert",
+            [vec!["connector-b"], revealers].concat(),
+            vec!["connector-4","connector-5","connector-c"]
+        ),
+        (2,2) => (
+            "Disprove",
+            vec!["connector-5","connector-c"],
+            vec!["Challenger","Burn"],
+        ),
+        (4,1) => {
+            let input_3_addr = inputs[3].0.clone();
+            let connector_c_addr = transactions::get_precomputed_connector_c_address();
+            if input_3_addr != connector_c_addr {
+                (
+                    "Take-1",
+                    vec!["connector-0","connector-3","connector-a","connector-b"],
+                    vec!["Operator"],
+                )
+            } else {
+                (
+                    "Take-2",
+                    vec!["connector-0","connector-4","connector-5","connector-c"],
+                    vec!["Operator"],
+                )
+            }
+        },
+        (x,y) => (
+            "Unidentified",
+            vec![""; x],
+            vec![""; y],
+        )
+    };
+
+    let inputs = input_names.into_iter()
+        .zip(inputs.into_iter())
+        .map(|(x,(y,z))| (x.to_string(),y,z))
+        .collect();
+
+    let outputs = output_names.into_iter()
+        .zip(outputs.into_iter())
+        .map(|(x,(y,z))| (x.to_string(),y,z))
+        .collect();
+
+    let tx_name = tx_name.to_string();
+
+    let body = serde_json::to_string_pretty(&ResponseStruct{tx_name, inputs, outputs}).unwrap();
+    HttpResponse::Ok()
+        .content_type(ContentType::json())
+        .body(body)
+}
+
 #[get("get-tx-inputs-outputs/{txid}")]
-async fn get_tx_inputs_outpus(path: web::Path<String>) -> impl Responder {
+async fn get_tx_inputs_outputs(path: web::Path<String>) -> impl Responder {
     #[derive(Serialize)]
     struct ResponseStruct {
         inputs: Vec<(Address, Amount)>,
@@ -721,7 +853,7 @@ async fn send_assert(path: web::Path<i32>) -> impl Responder {
         let connector_c_addr = Some(transactions::get_precomputed_connector_c_address());
         let bitcom_lock_scripts = transactions::get_bitcom_lock_scripts();
         let connector_c_tapscripts = transactions::get_assert_tapscripts();
-        let (assert_txid, _) = match transactions::assert(&rpc, kick_off_2_txid, &bitcom_lock_scripts, &connector_c_tapscripts, corrupt_index, connector_c_addr) {
+        let (assert_txid, _) = match transactions::assert(&rpc, kick_off_2_txid, &bitcom_lock_scripts, &connector_c_tapscripts, corrupt_index, connector_c_addr).await {
             Ok(v) => v,
             Err(e) => return Err(e.to_string()),
         };
