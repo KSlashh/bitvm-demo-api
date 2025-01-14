@@ -12,8 +12,8 @@ pub const BIND_IP: &str = "0.0.0.0";
 pub const BIND_PORT: u16 = 7080;
 
 pub const RPCUSER: &str = "test";
-pub const RPCPASSWORD: &str = "TEST_ONLY_1vvudX2YIVU6PUNxLxQT0sEQd4OjOyHF";
-pub const RPC_URL: &str = "http://34.210.83.80:18443/wallet/public-test";
+pub const RPCPASSWORD: &str = "test";
+pub const RPC_URL: &str = "http://127.0.0.1:18443/wallet/public-test";
 
 pub const PROOF_PATH: &str = "data-dir/dummy_proof.json";
 pub const COMPILE_PATH: &str = "data-dir/compile";
