@@ -3,6 +3,7 @@ use bitcoin::{
     XOnlyPublicKey, absolute, TxIn, TxOut, ScriptBuf, Witness, Sequence
 };
 use bitcoincore_rpc::Client;
+use bitvm::bridge::contexts::operator;
 use bitvm::bridge::transactions::pre_signed::PreSignedTransaction;
 use std::str::FromStr;
 use bitvm::treepp::*;
@@ -38,6 +39,25 @@ use bitvm::bridge::{
 };
 use crate::utils::{wait, wait_tx};
 use crate::{config::{self, network}, utils};
+use once_cell::sync::Lazy;
+use log::info;
+
+pub static CONNECTOR_C_TAPSCRIPTS: Lazy<Vec<Script>> = Lazy::new(|| {
+    info!("load connector_c_tapscripts");
+    get_assert_tapscripts()
+});
+pub static BITCOM_LOCK_SCRIPTS: Lazy<Vec<Script>> = Lazy::new(|| {
+    info!("load bitcom_lock_scripts");
+    get_bitcom_lock_scripts()
+});
+pub static BITCOM_UNLOCK_SCRIPTS: Lazy<Vec<Script>> = Lazy::new(|| {
+    info!("load bitcom_unlock_scripts");
+    get_bitcom_unlock_scripts()
+});
+pub static REVEALERS_ADDRESS: Lazy<Vec<Address>> = Lazy::new(|| {
+    info!("load revealers' address");
+    get_revealers_address()
+});
 
 pub fn faucet(rpc: &Client, user_addr: &Address) -> Result<(OutPoint, OutPoint), String> {
     let faucet_1_amount = Amount::from_sat(config::PEGIN_AMOUNT);
@@ -439,7 +459,7 @@ pub async fn assert(
     let revealers = get_revealers(&operator_context.n_of_n_taproot_public_key, bitcom_lock_scripts);
     let bitcom_unlock_scripts = match corrupt_index {
         Some(index) => get_corrupt_bitcom_unlock_scripts(index as usize),
-        _ => get_bitcom_unlock_scripts(),
+        _ => borrow_bitcom_unlock_scripts().clone(),
     };
     let bitcom_inputs = (0..bitcom_unlock_scripts.len())
         .map(|i| Input{
@@ -464,7 +484,7 @@ pub async fn assert(
     let _ = utils::broadcast_tx(rpc, &tx);
     wait_tx().await;
     let _ = utils::mint_block(rpc, 1);
-    wait(10).await;
+    wait_tx().await;
     let _ = utils::mint_block(rpc, 1);
     match utils::validate_tx(rpc, assert_txid) {
         Ok(valid) => {
@@ -588,6 +608,7 @@ pub fn disprove(
     assert_txid: Txid, 
     connector_c_tapscripts: &Vec<Script>,
     connector_c_address: Option<Address>,
+    fake_index: Option<usize>,
 ) -> Result<Txid, String> {
     let operator_context = config::get_operator_context();
     let verifier_contexts = config::get_verifier_contexts();
@@ -624,7 +645,7 @@ pub fn disprove(
         _ => { connector_c.gen_taproot_address(); },
     };
 
-    let (leaf_index, hint_script) = match validate_assert_bitcom(rpc, assert_txid) {
+    let (leaf_index, hint_script) = match validate_assert_bitcom(rpc, assert_txid, fake_index) {
         Ok(res) => match res {
             Some(v) => v,
             _ => return Err(format!("bitcommitments in given assert_tx is completely valid, cannot disprove valid assertions")),
@@ -670,13 +691,50 @@ pub fn disprove(
 }
 
 
+pub fn get_connector_0_amount() -> Amount {
+    Amount::from_sat(99980000)
+}
+pub fn get_connector_4_amount() -> Amount {
+    Amount::from_sat(20000)
+
+}
+pub fn get_connector_5_amount() -> Amount {
+    Amount::from_sat(17690000)
+    
+}
+pub fn get_connector_b_amount() -> Amount {
+    Amount::from_sat(18550000)
+}
+pub fn get_connector_c_amount() -> Amount {
+    Amount::from_sat(20000)
+}
+pub fn get_precomputed_connector_0_address() -> Address {
+    Address::from_str(config::CONNECTOR_0_ADDRESS).unwrap().assume_checked()
+}
+pub fn get_precomputed_connector_4_address() -> Address {
+    Address::from_str(config::CONNECTOR_4_ADDRESS).unwrap().assume_checked()
+}
+pub fn get_precomputed_connector_5_address() -> Address {
+    Address::from_str(config::CONNECTOR_5_ADDRESS).unwrap().assume_checked()
+}
+pub fn get_precomputed_connector_b_address() -> Address {
+    Address::from_str(config::CONNECTOR_B_ADDRESS).unwrap().assume_checked()
+}
 pub fn get_precomputed_connector_c_address() -> Address {
     Address::from_str(config::CONNECTOR_C_ADDRESS).unwrap().assume_checked()
+}
+
+pub fn borrow_bitcom_lock_scripts() -> &'static Vec<Script> {
+    &BITCOM_LOCK_SCRIPTS
 }
 
 pub fn get_bitcom_lock_scripts() -> Vec<Script> {
     let (wots_pk, _) = get_wots_keys();
     assert_bitcom_lock(&wots_pk)
+}
+
+pub fn borrow_bitcom_unlock_scripts() -> &'static Vec<Script> {
+    &BITCOM_UNLOCK_SCRIPTS
 }
 
 pub fn get_bitcom_unlock_scripts() -> Vec<Script> {
@@ -686,6 +744,10 @@ pub fn get_bitcom_unlock_scripts() -> Vec<Script> {
 pub fn get_corrupt_bitcom_unlock_scripts(corrupt_index: usize) -> Vec<Script> {
     let (_, wots_sk) = get_wots_keys();
     assert_unlock_scripts_from_file(config::WOTS_SIGNATURE_PATH, Some(corrupt_index), Some(wots_sk))
+}
+
+pub fn borrow_assert_tapscripts() -> &'static Vec<Script> {
+    &CONNECTOR_C_TAPSCRIPTS
 }
 
 pub fn get_assert_tapscripts() -> Vec<Script> {
@@ -701,14 +763,21 @@ pub fn corrupt_assertions(signed_assertions: &mut WotsSignatures, index: usize) 
     corrupt_signed_assertions(&wots_sk, signed_assertions, index);
 }   
 
-pub fn validate_assert_bitcom(rpc: &Client, assert_txid: Txid) -> Result<Option<(usize, Script)>, String> {
+pub fn validate_assert_bitcom(rpc: &Client, assert_txid: Txid, fake_index: Option<usize>) -> Result<Option<(usize, Script)>, String> {
     fn validate(res: &mut Option<(usize, Script)>, vk: &VerifyingKey, signed_asserts: WotsSignatures, inpubkeys: WotsPublicKeys) {
         *res = validate_assertions(&vk, signed_asserts, inpubkeys);
     }
 
-    let signed_assertions = match extract_signed_assertions(rpc, assert_txid) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("fail to extract_signed_assertions: {}", e))
+    let signed_assertions = match fake_index {
+        Some(index) => {
+            let mut ss = get_signed_assertions();
+            corrupt_assertions(&mut ss, index);
+            ss
+        },
+        _ => match extract_signed_assertions(rpc, assert_txid) {
+            Ok(v) => v,
+            Err(e) => return Err(format!("fail to extract_signed_assertions: {}", e))
+        },
     };
     let (vk, _, _) = load_proof_from_file(config::PROOF_PATH);
     let (wots_pk, _) = get_wots_keys();
@@ -739,10 +808,10 @@ fn get_revealers<'a>(n_of_n_taproot_public_key: &XOnlyPublicKey, bitcom_lock_scr
     revealers
 }
 
-#[test]
-fn test_revealers() {
+fn get_revealers_address() -> Vec<Address> {
     let operator_context = config::get_operator_context();
-    let bitcom_lock_scripts = get_bitcom_lock_scripts();
-    let revealers = get_revealers(&operator_context.n_of_n_taproot_public_key, &bitcom_lock_scripts);
-    dbg!(revealers.len());
+    let revealers = get_revealers(&operator_context.n_of_n_taproot_public_key, borrow_bitcom_lock_scripts());
+    revealers.into_iter()
+        .map(|r| r.generate_taproot_address())
+        .collect()
 }

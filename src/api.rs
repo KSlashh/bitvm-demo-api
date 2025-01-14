@@ -1,6 +1,6 @@
 use actix_web::{get, post, web,  http::header::ContentType, HttpResponse, HttpServer, Responder};
-use bitcoin::{Address, Amount, OutPoint, Transaction, Txid};
-use bitvm::bridge::{connectors::{connector_c, revealer}, transactions::{kick_off_1, peg_in_refund}};
+use bitcoin::{ Address, Amount, OutPoint, Transaction, Txid};
+use bitvm::bridge::{connectors::{connector_c, revealer}, transactions::{kick_off_1, peg_in_refund}, graphs::base::DUST_AMOUNT};
 use rusqlite::Connection;
 use serde::Serialize;
 use log::{info, warn, error};
@@ -19,8 +19,8 @@ struct TxOutput {
     value: Amount,
 }
 
-#[get("get-named-inputs-outputs/{txid}")]
-async fn get_named_inputs_outputs(path: web::Path<String>) -> impl Responder {
+#[get("/get-named-inputs-outputs/{tx_type}/{txid}")]
+async fn get_named_inputs_outputs(path: web::Path<(u8, String)>) -> impl Responder {
     #[derive(Serialize)]
     struct ResponseStruct {
         tx_name: String,
@@ -28,11 +28,12 @@ async fn get_named_inputs_outputs(path: web::Path<String>) -> impl Responder {
         outputs: Vec<(String, Address, Amount)>,
     }
 
-    let txid = path.into_inner();
+    let (tx_type, txid) = path.into_inner();
+    info!("new REQUEST: /get-named-inputs-outputs/{tx_type}/{txid}");
     let txid = match utils::txid_from_str(&txid) {
         Ok(v) => v,
         Err(e) => { 
-            error!("/get-named-inputs-outputs/{txid}: fail to decode txid: {}", e);
+            error!("/get-named-inputs-outputs/{tx_type}/{txid}: fail to decode txid: {}", e);
             return HttpResponse::BadRequest().body(e.to_string())
         }
     };
@@ -40,62 +41,172 @@ async fn get_named_inputs_outputs(path: web::Path<String>) -> impl Responder {
     let rpc = match utils::new_rpc_client().await {
         Ok(v) => v,
         Err(e) => { 
-            error!("/get-named-inputs-outputs/{txid}: fail to connect bitcoind: {}", e);
+            error!("/get-named-inputs-outputs/{tx_type}/{txid}: fail to connect bitcoind: {}", e);
             return HttpResponse::InternalServerError().body(e.to_string())
         }
     };
 
-    let tx= match utils::get_raw_tx(&rpc, txid) {
-        Ok(v) => v,
-        Err(e) => { 
-            error!("/get-named-inputs-outputs/{txid}: fail to get tx:{txid} : {}", e);
-            return HttpResponse::InternalServerError().body(e.to_string())
-        }
-    };
-
-    let mut inputs: Vec<(Address, Amount)> = vec![];
-    let mut outputs: Vec<(Address, Amount)> = vec![];
-    let mut prev_tx_cache: (Txid, Transaction) = (txid, tx.clone());
-
-    for i in 0..tx.input.len() {
-        let prev_txid = tx.input[i].previous_output.txid;
-        if prev_txid != prev_tx_cache.0 {
-            prev_tx_cache = match utils::get_raw_tx(&rpc, prev_txid) {
-                Ok(v) => (prev_txid, v),
+    let (inputs, outputs) = match tx_type {
+        2 => { // PegIn
+            match get_inputs_outputs(&rpc, tx_type, txid) {
+                Ok(v) => v,
+                Err(e) => return HttpResponse::InternalServerError().body(e.to_string())
+            }
+        },
+        3 => { // Kickoff_1
+            match get_inputs_outputs(&rpc, tx_type, txid) {
+                Ok(v) => v,
+                Err(e) => return HttpResponse::InternalServerError().body(e.to_string())
+            }
+        },
+        4 => { // Kickoff_2
+            match get_inputs_outputs(&rpc, tx_type, txid) {
+                Ok(v) => v,
+                Err(e) => return HttpResponse::InternalServerError().body(e.to_string())
+            }
+        },
+        5 => { // Challenge
+            match get_inputs_outputs(&rpc, tx_type, txid) {
+                Ok(v) => v,
+                Err(e) => return HttpResponse::InternalServerError().body(e.to_string())
+            }
+        },
+        6 => { // Take_1
+            match get_inputs_outputs(&rpc, tx_type, txid) {
+                Ok(v) => v,
+                Err(e) => return HttpResponse::InternalServerError().body(e.to_string())
+            }
+        },
+        7 => { // Assert
+            let revealers_num = transactions::REVEALERS_ADDRESS.len();
+            let r = transactions::REVEALERS_ADDRESS.clone()
+                .into_iter()
+                .zip(vec![Amount::from_sat(DUST_AMOUNT); revealers_num].into_iter())
+                .collect();
+            let inputs = [
+                vec![(transactions::get_precomputed_connector_b_address(), transactions::get_connector_b_amount())],
+                r,
+            ].concat();
+            let outputs = vec![
+                (transactions::get_precomputed_connector_4_address(), transactions::get_connector_4_amount()),
+                (transactions::get_precomputed_connector_5_address(), transactions::get_connector_5_amount()), 
+                (transactions::get_precomputed_connector_c_address(), transactions::get_connector_c_amount()),
+            ];
+            (inputs, outputs)
+        },
+        8 => { // Take_2
+            let tx= match utils::get_raw_tx(&rpc, txid) {
+                Ok(v) => v,
                 Err(e) => { 
-                    error!("/get-named-inputs-outputs/{txid}: fail to get tx:{prev_txid} : {}", e);
+                    error!("/get-named-inputs-outputs/{tx_type}/{txid}: fail to get tx:{txid} : {}", e);
                     return HttpResponse::InternalServerError().body(e.to_string())
                 }
             };
-        };
-        let prev_vout = tx.input[i].previous_output.vout;
-        let prev_outpoint = match prev_tx_cache.1.output.get(prev_vout as usize) {
-            Some(v) => v,
-            _ => { 
-                error!("/get-named-inputs-outputs/{txid}: fail to get prev_txout");
-                return HttpResponse::InternalServerError().body("fail to get prev_txout")
-            },
-        };
-        let input_i_addr = match Address::from_script(&prev_outpoint.script_pubkey, config::network()) {
+            let inputs = vec![
+                (transactions::get_precomputed_connector_0_address(), transactions::get_connector_0_amount()), 
+                (transactions::get_precomputed_connector_4_address(), transactions::get_connector_4_amount()),
+                (transactions::get_precomputed_connector_5_address(), transactions::get_connector_5_amount()), 
+                (transactions::get_precomputed_connector_c_address(), transactions::get_connector_c_amount()),
+
+            ];
+            let mut outputs = vec![];
+            for i in 0..tx.output.len() {
+                let output_i_addr = match Address::from_script(&tx.output[i].script_pubkey, config::network()) {
+                    Ok(v) => v,
+                    Err(e) => { 
+                        error!("/get-named-inputs-outputs/{tx_type}/{txid}: fail to calc address: {}", e);
+                        return HttpResponse::InternalServerError().body(e.to_string())
+                    }
+                };
+                let output_i_amount = tx.output[i].value;
+                outputs.push((output_i_addr, output_i_amount));
+            }
+            (inputs, outputs)
+        },  
+        9 => { // Disprove
+            let tx= match utils::get_raw_tx(&rpc, txid) {
+                Ok(v) => v,
+                Err(e) => { 
+                    error!("/get-named-inputs-outputs/{tx_type}/{txid}: fail to get tx:{txid} : {}", e);
+                    return HttpResponse::InternalServerError().body(e.to_string())
+                }
+            };
+            let inputs = vec![
+                (transactions::get_precomputed_connector_5_address(), transactions::get_connector_5_amount()), 
+                (transactions::get_precomputed_connector_c_address(), transactions::get_connector_c_amount()),
+            ];
+            let mut outputs = vec![];
+            for i in 0..tx.output.len() {
+                let output_i_addr = match Address::from_script(&tx.output[i].script_pubkey, config::network()) {
+                    Ok(v) => v,
+                    Err(e) => { 
+                        error!("/get-named-inputs-outputs/{tx_type}/{txid}: fail to calc address: {}", e);
+                        return HttpResponse::InternalServerError().body(e.to_string())
+                    }
+                };
+                let output_i_amount = tx.output[i].value;
+                outputs.push((output_i_addr, output_i_amount));
+            }
+            (inputs, outputs)
+        },
+        _ => { // Unidentified
+            error!("/get-named-inputs-outputs/{tx_type}/{txid}: Unidentified tx type");
+            return HttpResponse::BadRequest().body("Unidentified tx type".to_string())
+        }
+    };
+
+    fn get_inputs_outputs(rpc: &bitcoincore_rpc::Client, tx_type: u8, txid: Txid) -> Result<(Vec<(Address, Amount)>, Vec<(Address, Amount)>), String> {
+        let tx= match utils::get_raw_tx(&rpc, txid) {
             Ok(v) => v,
             Err(e) => { 
-                error!("/get-named-inputs-outputs/{txid}: fail to calc address: {}", e);
-                return HttpResponse::InternalServerError().body(e.to_string())
+                error!("/get-named-inputs-outputs/{tx_type}/{txid}: fail to get tx:{txid} : {}", e);
+                return Err(e.to_string())
             }
         };
-        let input_i_amount = prev_outpoint.value;
-        inputs.push((input_i_addr, input_i_amount));
-    }
-    for i in 0..tx.output.len() {
-        let output_i_addr = match Address::from_script(&tx.output[i].script_pubkey, config::network()) {
-            Ok(v) => v,
-            Err(e) => { 
-                error!("/get-named-inputs-outputs/{txid}: fail to calc address: {}", e);
-                return HttpResponse::InternalServerError().body(e.to_string())
-            }
-        };
-        let output_i_amount = tx.output[i].value;
-        outputs.push((output_i_addr, output_i_amount));
+        let mut inputs: Vec<(Address, Amount)> = vec![];
+        let mut outputs: Vec<(Address, Amount)> = vec![];
+        let mut prev_tx_cache: (Txid, Transaction) = (txid, tx.clone());
+        for i in 0..tx.input.len() {
+            let prev_txid = tx.input[i].previous_output.txid;
+            if prev_txid != prev_tx_cache.0 {
+                prev_tx_cache = match utils::get_raw_tx(&rpc, prev_txid) {
+                    Ok(v) => (prev_txid, v),
+                    Err(e) => { 
+                        error!("/get-named-inputs-outputs/{tx_type}/{txid}: fail to get tx:{prev_txid} : {}", e);
+                        return Err(e.to_string())
+                    }
+                };
+            };
+            let prev_vout = tx.input[i].previous_output.vout;
+            let prev_outpoint = match prev_tx_cache.1.output.get(prev_vout as usize) {
+                Some(v) => v,
+                _ => { 
+                    error!("/get-named-inputs-outputs/{tx_type}/{txid}: fail to get prev_txout");
+                    return Err("fail to get prev_txout".to_string())
+                },
+            };
+            let input_i_addr = match Address::from_script(&prev_outpoint.script_pubkey, config::network()) {
+                Ok(v) => v,
+                Err(e) => { 
+                    error!("/get-named-inputs-outputs/{tx_type}/{txid}: fail to calc address: {}", e);
+                    return Err(e.to_string())
+                }
+            };
+            let input_i_amount = prev_outpoint.value;
+            inputs.push((input_i_addr, input_i_amount));
+        }
+        for i in 0..tx.output.len() {
+            let output_i_addr = match Address::from_script(&tx.output[i].script_pubkey, config::network()) {
+                Ok(v) => v,
+                Err(e) => { 
+                    error!("/get-named-inputs-outputs/{tx_type}/{txid}: fail to calc address: {}", e);
+                    return Err(e.to_string())
+                }
+            };
+            let output_i_amount = tx.output[i].value;
+            outputs.push((output_i_addr, output_i_amount));
+        }
+        Ok((inputs, outputs))
     }
 
     let revealers = vec!["revealer"; 59];
@@ -155,7 +266,7 @@ async fn get_named_inputs_outputs(path: web::Path<String>) -> impl Responder {
     };
 
     if tx_name == "Unidentified" {
-        warn!("/get-named-inputs-outputs/{txid}: unidentified tx");
+        warn!("/get-named-inputs-outputs/{tx_type}/{txid}: unidentified tx");
     };
 
     let inputs = input_names.into_iter()
@@ -171,13 +282,14 @@ async fn get_named_inputs_outputs(path: web::Path<String>) -> impl Responder {
     let tx_name = tx_name.to_string();
 
     let body = serde_json::to_string_pretty(&ResponseStruct{tx_name, inputs, outputs}).unwrap();
-    info!("/get-named-inputs-outputs/{txid}: ok");
+    info!("/get-named-inputs-outputs/{tx_type}/{txid}: ok");
     HttpResponse::Ok()
         .content_type(ContentType::json())
         .body(body)
 }
 
-#[get("get-tx-inputs-outputs/{txid}")]
+/* 
+#[get("/get-tx-inputs-outputs/{txid}")]
 async fn get_tx_inputs_outputs(path: web::Path<String>) -> impl Responder {
     #[derive(Serialize)]
     struct ResponseStruct {
@@ -186,6 +298,7 @@ async fn get_tx_inputs_outputs(path: web::Path<String>) -> impl Responder {
     }
 
     let txid = path.into_inner();
+    info!("new REQUEST: /get-tx-inputs-outputs/{txid}");
     let txid = match utils::txid_from_str(&txid) {
         Ok(v) => v,
         Err(e) => { 
@@ -261,6 +374,7 @@ async fn get_tx_inputs_outputs(path: web::Path<String>) -> impl Responder {
         .content_type(ContentType::json())
         .body(body)
 }
+*/
 
 #[post("/get-user-workflow/{user_address}")]
 async fn get_user_workflow(path: web::Path<String>) -> impl Responder {
@@ -271,6 +385,7 @@ async fn get_user_workflow(path: web::Path<String>) -> impl Responder {
     }
 
     let user_addr = path.into_inner();
+    info!("new REQUEST: /get-user-workflow/{user_addr}");
     let user_addr = match utils::address_from_str(&user_addr) {
         Ok(v) => v,
         Err(e) => { 
@@ -334,6 +449,7 @@ async fn get_workflow_info(path: web::Path<i32>) -> impl Responder {
     // type ResponseStruct = sql::UserData;
 
     let workflow_id = path.into_inner();
+    info!("new REQUEST: /get-workflow-info/{workflow_id}");
     let db = match sql::open_db() {
         Ok(v) => v,
         Err(e) => { 
@@ -392,6 +508,7 @@ async fn request_btc(path: web::Path<String>) -> impl Responder {
     }
 
     let user_addr = path.into_inner();
+    info!("new REQUEST: /request-btc/{user_addr}");
     let user_addr = match utils::address_from_str(&user_addr) {
         Ok(v) => v,
         Err(e) => {
@@ -496,7 +613,7 @@ async fn get_unsigned_pegin_tx(path: web::Path<i32>) -> impl Responder {
     }
 
     let workflow_id = path.into_inner();
-
+    info!("new REQUEST: /get-unsigned-pegin-tx/{workflow_id}");
     let db = match sql::open_db() {
         Ok(v) => v,
         Err(e) => { 
@@ -592,6 +709,7 @@ async fn post_pegin_txid(path: web::Path<(i32, String)>) -> impl Responder {
     }
 
     let (workflow_id, pegin_txid) = path.into_inner();
+    info!("new REQUEST: /post-pegin-txid/{workflow_id}/{pegin_txid}");
     let pegin_txid = match utils::txid_from_str(&pegin_txid) {
         Ok(v) => v,
         Err(e) => { 
@@ -651,6 +769,7 @@ async fn post_fake_index(path: web::Path<(i32, u32)>) -> impl Responder {
     }
 
     let (workflow_id, fake_index) = path.into_inner();
+    info!("new REQUEST: /post-fake-index/{workflow_id}/{fake_index}");
     let db = match sql::open_db() {
         Ok(v) => v,
         Err(e) => {
@@ -708,7 +827,7 @@ async fn get_unsigned_kickoff1_tx(path: web::Path<i32>) -> impl Responder {
     }
 
     let workflow_id = path.into_inner();
-
+    info!("new REQUEST: /get-unsigned-kickoff1-tx/{workflow_id}");
     let db = match sql::open_db() {
         Ok(v) => v,
         Err(e) => { 
@@ -802,6 +921,7 @@ async fn send_kickoff_2(path: web::Path<(i32, String)>) -> impl Responder {
     }
 
     let (workflow_id, kickoff_1_txid) = path.into_inner();
+    info!("new REQUEST: /send-kickoff2/{workflow_id}/{kickoff_1_txid}");
     let kick_off_1_txid = match utils::txid_from_str(&kickoff_1_txid) {
         Ok(v) => v,
         Err(e) => { 
@@ -854,8 +974,8 @@ async fn send_kickoff_2(path: web::Path<(i32, String)>) -> impl Responder {
             return HttpResponse::InternalServerError().body(e.to_string())
         }
     };
-    let bitcom_lock_scripts = transactions::get_bitcom_lock_scripts();
-    let kick_off_2_txid = match transactions::kick_off_2(&rpc, kick_off_1_txid, &bitcom_lock_scripts) {
+    let bitcom_lock_scripts = transactions::borrow_bitcom_lock_scripts();
+    let kick_off_2_txid = match transactions::kick_off_2(&rpc, kick_off_1_txid, bitcom_lock_scripts) {
         Ok(v) => v,
         Err(e) => { 
             error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: fail to send kickoff2 tx: {}", e);
@@ -886,6 +1006,7 @@ async fn send_challenge(path: web::Path<i32>) -> impl Responder {
     }
 
     let workflow_id = path.into_inner();
+    info!("new REQUEST: /send-challenge/{workflow_id}");
     let db = match sql::open_db() {
         Ok(v) => v,
         Err(e) => { 
@@ -960,6 +1081,7 @@ async fn send_take_1(path: web::Path<i32>) -> impl Responder {
     }
 
     let workflow_id = path.into_inner();
+    info!("new REQUEST: /send-take1/{workflow_id}");
     let db = match sql::open_db() {
         Ok(v) => v,
         Err(e) => { 
@@ -1063,6 +1185,7 @@ async fn send_assert(path: web::Path<i32>) -> impl Responder {
     }
 
     let workflow_id = path.into_inner();
+    info!("new REQUEST: /send-assert/{workflow_id}");
     let db = match sql::open_db() {
         Ok(v) => v,
         Err(e) => { 
@@ -1122,9 +1245,9 @@ async fn send_assert(path: web::Path<i32>) -> impl Responder {
         };
         let corrupt_index = user_data.fake_index;
         let connector_c_addr = Some(transactions::get_precomputed_connector_c_address());
-        let bitcom_lock_scripts = transactions::get_bitcom_lock_scripts();
-        let connector_c_tapscripts = transactions::get_assert_tapscripts();
-        let (assert_txid, _) = match transactions::assert(&rpc, kick_off_2_txid, &bitcom_lock_scripts, &connector_c_tapscripts, corrupt_index, connector_c_addr).await {
+        let bitcom_lock_scripts = transactions::borrow_bitcom_lock_scripts();
+        let connector_c_tapscripts = transactions::borrow_assert_tapscripts();
+        let (assert_txid, _) = match transactions::assert(&rpc, kick_off_2_txid, bitcom_lock_scripts, connector_c_tapscripts, corrupt_index, connector_c_addr).await {
             Ok(v) => v,
             Err(e) => return Err(e.to_string()),
         };
@@ -1171,6 +1294,7 @@ async fn send_take_2(path: web::Path<i32>) -> impl Responder {
     }
 
     let workflow_id = path.into_inner();
+    info!("new REQUEST: /send-take2/{workflow_id}");
     let db = match sql::open_db() {
         Ok(v) => v,
         Err(e) => { 
@@ -1248,8 +1372,8 @@ async fn send_take_2(path: web::Path<i32>) -> impl Responder {
             Err(e) => return Err(e.to_string()),
         };
         let connector_c_addr = Some(transactions::get_precomputed_connector_c_address());
-        let connector_c_tapscripts = transactions::get_assert_tapscripts();
-        let take_2_txid = match transactions::take_2(&rpc, peg_in_txid, assert_txid, &connector_c_tapscripts, connector_c_addr, user_address) {
+        let connector_c_tapscripts = transactions::borrow_assert_tapscripts();
+        let take_2_txid = match transactions::take_2(&rpc, peg_in_txid, assert_txid, connector_c_tapscripts, connector_c_addr, user_address) {
             Ok(v) => v,
             Err(e) => return Err(e.to_string()),
         };
@@ -1296,6 +1420,7 @@ async fn send_disprove(path: web::Path<i32>) -> impl Responder {
     }
 
     let workflow_id = path.into_inner();
+    info!("new REQUEST: /send-disprove/{workflow_id}");
     let db = match sql::open_db() {
         Ok(v) => v,
         Err(e) => { 
@@ -1353,8 +1478,12 @@ async fn send_disprove(path: web::Path<i32>) -> impl Responder {
             Err(e) => return Err(e.to_string())
         };
         let connector_c_addr = Some(transactions::get_precomputed_connector_c_address());
-        let connector_c_tapscripts = transactions::get_assert_tapscripts();
-        let disprove_txid = match transactions::disprove(&rpc, assert_txid, &connector_c_tapscripts, connector_c_addr) {
+        let connector_c_tapscripts = transactions::borrow_assert_tapscripts();
+        let fake_index = match user_data.fake_index {
+            Some(i) => i as usize,
+            _ => return Err("can not disprove valid assert".to_string()),
+        };
+        let disprove_txid = match transactions::disprove(&rpc, assert_txid, connector_c_tapscripts, connector_c_addr, Some(fake_index)) {
             Ok(v) => v,
             Err(e) => return Err(e.to_string())
         };

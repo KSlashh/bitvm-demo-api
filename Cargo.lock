@@ -1974,6 +1974,7 @@ dependencies = [
  "hex",
  "log",
  "log4rs",
+ "once_cell",
  "rusqlite",
  "serde",
  "serde_json",

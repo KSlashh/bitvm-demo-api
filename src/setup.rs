@@ -97,6 +97,10 @@ pub fn setup_all() {
     };
     info!("done. [{duration} s]");
 
+    info!("merge tapscripts...");
+    let tap_scripts = groth16::load_all_assert_tapscripts_from_file(config::TAPSCRIPT_PATH);
+    
+
     info!("generating wots_signatures...... (this may take serveral minutes)");
     let now = SystemTime::now();
     generate_signed_assertions();
@@ -105,6 +109,10 @@ pub fn setup_all() {
         Err(_) => "?".to_string(),
     };
     info!("done. [{duration} s]");
+
+    info!("merge wots_signatures...");
+    let signed_assertions = groth16::load_all_signed_assertions_from_file(config::WOTS_SIGNATURE_PATH);
+
 }
 
 pub fn compile() { 

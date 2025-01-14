@@ -13,11 +13,11 @@ use std::thread::Builder;
 use bitcoin::{Address, Amount, Txid};
 use bitcoin_hashes::Hash;
 use bitvm::bridge::transactions::kick_off_1;
+use bitvm::treepp::Script;
 use clap::{Command, Arg};
 use actix_web::{web, App, HttpResponse, HttpServer};
 use actix_cors::Cors;
 use log::{info, warn, error, debug, trace};
-
 
 // export RUST_MIN_STACK=8388608
 
@@ -40,7 +40,6 @@ async fn main() -> std::io::Result<()> {
     info!("Listening to {ip}:{port} ......");
     HttpServer::new(|| App::new()
         .service(api::get_named_inputs_outputs)
-        .service(api::get_tx_inputs_outputs)
         .service(api::get_user_workflow)
         .service(api::get_workflow_info)
         .service(api::request_btc)
