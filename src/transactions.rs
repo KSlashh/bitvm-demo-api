@@ -36,7 +36,7 @@ use bitvm::bridge::{
         disprove::DisproveTransaction,
     }
 };
-use crate::utils::wait_tx;
+use crate::utils::{wait, wait_tx};
 use crate::{config::{self, network}, utils};
 
 pub fn faucet(rpc: &Client, user_addr: &Address) -> Result<(OutPoint, OutPoint), String> {
@@ -464,7 +464,8 @@ pub async fn assert(
     let _ = utils::broadcast_tx(rpc, &tx);
     wait_tx().await;
     let _ = utils::mint_block(rpc, 1);
-    wait_tx().await;
+    wait(10).await;
+    let _ = utils::mint_block(rpc, 1);
     match utils::validate_tx(rpc, assert_txid) {
         Ok(valid) => {
             if !valid { 

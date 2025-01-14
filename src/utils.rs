@@ -72,6 +72,10 @@ pub fn dead_address() -> Address {
     Address::p2sh(&script!{OP_RETURN}.compile(), config::network()).unwrap()
 } 
 
+pub async fn wait(wait_time_secs: u64) {
+    sleep(Duration::from_secs(wait_time_secs)).await;
+}
+
 pub async fn wait_tx() {
     sleep(Duration::from_secs(config::TX_WAIT_TIME)).await;
 } 
