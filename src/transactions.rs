@@ -3,6 +3,7 @@ use bitcoin::{
     XOnlyPublicKey, absolute, TxIn, TxOut, ScriptBuf, Witness, Sequence
 };
 use bitcoincore_rpc::Client;
+use bitvm::bridge::connectors::connector_0;
 use bitvm::bridge::contexts::operator;
 use bitvm::bridge::transactions::pre_signed::PreSignedTransaction;
 use std::str::FromStr;
@@ -436,10 +437,11 @@ pub async fn assert(
 ) -> Result<(Txid, Address), String> {
     let operator_context = config::get_operator_context();
     let connector_b_vout = 1; 
-    let connector_b_amount = match utils::get_utxo_value(rpc, kick_off_2_txid, connector_b_vout) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("fail to get connector_b value: {}", e))
-    };
+    let connector_b_amount = get_connector_b_amount();
+    // let connector_b_amount = match utils::get_utxo_value(rpc, kick_off_2_txid, connector_b_vout) {
+    //     Ok(v) => v,
+    //     Err(e) => return Err(format!("fail to get connector_b value: {}", e))
+    // };
     let assert_input_0 = Input {
         outpoint: OutPoint {
             txid: kick_off_2_txid,
@@ -510,10 +512,11 @@ pub fn take_2(
     let verifier_contexts = config::get_verifier_contexts();
 
     let connector_0_vout = 0; 
-    let connector_0_amount = match utils::get_utxo_value(rpc, peg_in_txid, connector_0_vout) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("fail to get connector_0 value: {}", e))
-    };
+    let connector_0_amount = get_connector_0_amount();
+    // let connector_0_amount = match utils::get_utxo_value(rpc, peg_in_txid, connector_0_vout) {
+    //     Ok(v) => v,
+    //     Err(e) => return Err(format!("fail to get connector_0 value: {}", e))
+    // };
     let take_2_input_0 = Input {
         outpoint: OutPoint {
             txid: peg_in_txid,
@@ -523,10 +526,11 @@ pub fn take_2(
     };
 
     let connector_4_vout  = 0;
-    let connector_4_amount = match utils::get_utxo_value(rpc, assert_txid, connector_4_vout) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("fail to get connector_4 value: {}", e))
-    };
+    let connector_4_amount = get_connector_4_amount();
+    // let connector_4_amount = match utils::get_utxo_value(rpc, assert_txid, connector_4_vout) {
+    //     Ok(v) => v,
+    //     Err(e) => return Err(format!("fail to get connector_4 value: {}", e))
+    // };
     let take_2_input_1 = Input {
         outpoint: OutPoint {
             txid: assert_txid,
@@ -536,10 +540,11 @@ pub fn take_2(
     };
 
     let connector_5_vout  = 1;
-    let connector_5_amount = match utils::get_utxo_value(rpc, assert_txid, connector_5_vout) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("fail to get connector_5 value: {}", e))
-    };
+    let connector_5_amount = get_connector_5_amount();
+    // let connector_5_amount = match utils::get_utxo_value(rpc, assert_txid, connector_5_vout) {
+    //     Ok(v) => v,
+    //     Err(e) => return Err(format!("fail to get connector_5 value: {}", e))
+    // };
     let take_2_input_2 = Input {
         outpoint: OutPoint {
             txid: assert_txid,
@@ -549,10 +554,11 @@ pub fn take_2(
     };
 
     let connector_c_vout  = 2;
-    let connector_c_amount = match utils::get_utxo_value(rpc, assert_txid, connector_c_vout) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("fail to get connector_c value: {}", e))
-    };
+    let connector_c_amount = get_connector_c_amount();
+    // let connector_c_amount = match utils::get_utxo_value(rpc, assert_txid, connector_c_vout) {
+    //     Ok(v) => v,
+    //     Err(e) => return Err(format!("fail to get connector_c value: {}", e))
+    // };
     let take_2_input_3 = Input {
         outpoint: OutPoint {
             txid: assert_txid,
@@ -614,10 +620,11 @@ pub fn disprove(
     let verifier_contexts = config::get_verifier_contexts();
 
     let connector_5_vout  = 1;
-    let connector_5_amount = match utils::get_utxo_value(rpc, assert_txid, connector_5_vout) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("fail to get connector_5 value: {}", e))
-    };
+    let connector_5_amount = get_connector_5_amount();
+    // let connector_5_amount = match utils::get_utxo_value(rpc, assert_txid, connector_5_vout) {
+    //     Ok(v) => v,
+    //     Err(e) => return Err(format!("fail to get connector_5 value: {}", e))
+    // };
     let disprove_input_0 = Input {
         outpoint: OutPoint {
             txid: assert_txid,
@@ -627,10 +634,11 @@ pub fn disprove(
     };
 
     let connector_c_vout  = 2;
-    let connector_c_amount = match utils::get_utxo_value(rpc, assert_txid, connector_c_vout) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("fail to get connector_c value: {}", e))
-    };
+    let connector_c_amount = get_connector_c_amount();
+    // let connector_c_amount = match utils::get_utxo_value(rpc, assert_txid, connector_c_vout) {
+    //     Ok(v) => v,
+    //     Err(e) => return Err(format!("fail to get connector_c value: {}", e))
+    // };
     let disprove_input_1 = Input {
         outpoint: OutPoint {
             txid: assert_txid,

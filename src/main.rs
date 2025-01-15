@@ -63,8 +63,14 @@ async fn main() -> std::io::Result<()> {
     .bind((ip, port))?
     .run()
     .await
+}
 
-
+#[tokio::test]
+async fn send_pegin_kickoff1() {
+    let rpc = utils::new_rpc_client().await.unwrap();
+    let pegin_txid = transactions::peg_in(&rpc);
+    let kickoff1_txid = transactions::kick_off_1(&rpc);
+    println!("pegin_txid: {pegin_txid} \nkickoff1_txid: {kickoff1_txid}");
 }
 
 /* 
