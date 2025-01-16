@@ -152,6 +152,16 @@ pub fn get_utxo_value(rpc: &Client, txid: Txid, vout: u32) -> Result<Amount, Str
     }
 }
 
+pub fn get_utxo_script_pubkey_value(rpc: &Client, txid: Txid, vout: u32) -> Result<(String, Amount), String> {
+    match rpc.get_tx_out(&txid_wrapper(txid), vout, Some(true)) {
+        Ok(res_option) => match res_option {
+            Some(res) => Ok((hex::encode(res.script_pub_key.hex) , amount_unwrapper(res.value))),
+            _ => Err("fail when get_utxo_value: no such outpoint".to_string()),
+        },
+        Err(e) => Err(format!("fail to get tx out: {}",e))
+    }
+}
+
 pub fn get_raw_tx(rpc: &Client, txid: Txid) -> Result<Transaction, String> {
     let tx = match rpc.get_raw_transaction(&txid_wrapper(txid), None) {
         Ok(v) => v,

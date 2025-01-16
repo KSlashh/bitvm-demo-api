@@ -10,6 +10,7 @@ use crate::{sql::{self, UserData}, transactions, utils, config};
 struct TxInput {
     txid: Txid,
     vout: u32,
+    script_pubkey: String,
     value: Amount,
 }
 #[derive(Serialize)]
@@ -24,8 +25,8 @@ async fn get_named_inputs_outputs(path: web::Path<(u8, String)>) -> impl Respond
     #[derive(Serialize)]
     struct ResponseStruct {
         tx_name: String,
-        inputs: Vec<(String, Address, String, Amount)>,
-        outputs: Vec<(String, Address, String, Amount)>,
+        inputs: Vec<(String, Address, Amount)>,
+        outputs: Vec<(String, Address, Amount)>,
     }
 
     let (tx_type, txid) = path.into_inner();
@@ -81,18 +82,18 @@ async fn get_named_inputs_outputs(path: web::Path<(u8, String)>) -> impl Respond
             let revealers_num = transactions::REVEALERS_ADDRESS.len();
             let r = transactions::REVEALERS_ADDRESS.clone()
                 .into_iter()
-                .zip(transactions::get_revealers_script_pubkey().clone())
                 .zip(vec![Amount::from_sat(DUST_AMOUNT); revealers_num].into_iter())
-                .map(|((x,y),z)| (x,y,z))
+                // .zip(transactions::get_revealers_script_pubkey().clone())
+                // .map(|((x,y),z)| (x,y,z))
                 .collect();
             let inputs = [
-                vec![(transactions::get_precomputed_connector_b_address(), transactions::get_connector_b_script_pubkey(), transactions::get_connector_b_amount())],
+                vec![(transactions::get_precomputed_connector_b_address(), transactions::get_connector_b_amount())],
                 r,
             ].concat();
             let outputs = vec![
-                (transactions::get_precomputed_connector_4_address(), transactions::get_connector_4_script_pubkey(), transactions::get_connector_4_amount()),
-                (transactions::get_precomputed_connector_5_address(), transactions::get_connector_5_script_pubkey(), transactions::get_connector_5_amount()), 
-                (transactions::get_precomputed_connector_c_address(), transactions::get_connector_c_script_pubkey(), transactions::get_connector_c_amount()),
+                (transactions::get_precomputed_connector_4_address(), transactions::get_connector_4_amount()),
+                (transactions::get_precomputed_connector_5_address(), transactions::get_connector_5_amount()), 
+                (transactions::get_precomputed_connector_c_address(), transactions::get_connector_c_amount()),
             ];
             (inputs, outputs)
         },
@@ -105,10 +106,10 @@ async fn get_named_inputs_outputs(path: web::Path<(u8, String)>) -> impl Respond
                 }
             };
             let inputs = vec![
-                (transactions::get_precomputed_connector_0_address(), transactions::get_connector_0_script_pubkey(), transactions::get_connector_0_amount()), 
-                (transactions::get_precomputed_connector_4_address(), transactions::get_connector_4_script_pubkey(), transactions::get_connector_4_amount()),
-                (transactions::get_precomputed_connector_5_address(), transactions::get_connector_5_script_pubkey(), transactions::get_connector_5_amount()), 
-                (transactions::get_precomputed_connector_c_address(), transactions::get_connector_c_script_pubkey(), transactions::get_connector_c_amount()),
+                (transactions::get_precomputed_connector_0_address(), transactions::get_connector_0_amount()), 
+                (transactions::get_precomputed_connector_4_address(), transactions::get_connector_4_amount()),
+                (transactions::get_precomputed_connector_5_address(), transactions::get_connector_5_amount()), 
+                (transactions::get_precomputed_connector_c_address(), transactions::get_connector_c_amount()),
 
             ];
             let mut outputs = vec![];
@@ -120,9 +121,9 @@ async fn get_named_inputs_outputs(path: web::Path<(u8, String)>) -> impl Respond
                         return HttpResponse::InternalServerError().body(e.to_string())
                     }
                 };
-                let output_i_scrpub = hex::encode(tx.output[i].script_pubkey.clone().into_bytes());
+                // let output_i_scrpub = hex::encode(tx.output[i].script_pubkey.clone().into_bytes());
                 let output_i_amount = tx.output[i].value;
-                outputs.push((output_i_addr, output_i_scrpub, output_i_amount));
+                outputs.push((output_i_addr, output_i_amount));
             }
             (inputs, outputs)
         },  
@@ -135,8 +136,8 @@ async fn get_named_inputs_outputs(path: web::Path<(u8, String)>) -> impl Respond
                 }
             };
             let inputs = vec![
-                (transactions::get_precomputed_connector_5_address(), transactions::get_connector_5_script_pubkey(), transactions::get_connector_5_amount()), 
-                (transactions::get_precomputed_connector_c_address(), transactions::get_connector_c_script_pubkey(), transactions::get_connector_c_amount()),
+                (transactions::get_precomputed_connector_5_address(), transactions::get_connector_5_amount()), 
+                (transactions::get_precomputed_connector_c_address(), transactions::get_connector_c_amount()),
             ];
             let mut outputs = vec![];
             for i in 0..tx.output.len() {
@@ -147,9 +148,9 @@ async fn get_named_inputs_outputs(path: web::Path<(u8, String)>) -> impl Respond
                         return HttpResponse::InternalServerError().body(e.to_string())
                     }
                 };
-                let output_i_scrpub = hex::encode(tx.output[i].script_pubkey.clone().into_bytes());
+                // let output_i_scrpub = hex::encode(tx.output[i].script_pubkey.clone().into_bytes());
                 let output_i_amount = tx.output[i].value;
-                outputs.push((output_i_addr, output_i_scrpub, output_i_amount));
+                outputs.push((output_i_addr, output_i_amount));
             }
             (inputs, outputs)
         },
@@ -159,7 +160,7 @@ async fn get_named_inputs_outputs(path: web::Path<(u8, String)>) -> impl Respond
         }
     };
 
-    fn get_inputs_outputs(rpc: &bitcoincore_rpc::Client, tx_type: u8, txid: Txid) -> Result<(Vec<(Address, String, Amount)>, Vec<(Address, String, Amount)>), String> {
+    fn get_inputs_outputs(rpc: &bitcoincore_rpc::Client, tx_type: u8, txid: Txid) -> Result<(Vec<(Address, Amount)>, Vec<(Address, Amount)>), String> {
         let tx= match utils::get_raw_tx(&rpc, txid) {
             Ok(v) => v,
             Err(e) => { 
@@ -167,8 +168,8 @@ async fn get_named_inputs_outputs(path: web::Path<(u8, String)>) -> impl Respond
                 return Err(e.to_string())
             }
         };
-        let mut inputs: Vec<(Address, String, Amount)> = vec![];
-        let mut outputs: Vec<(Address, String, Amount)> = vec![];
+        let mut inputs: Vec<(Address, Amount)> = vec![];
+        let mut outputs: Vec<(Address, Amount)> = vec![];
         let mut prev_tx_cache: (Txid, Transaction) = (txid, tx.clone());
         for i in 0..tx.input.len() {
             let prev_txid = tx.input[i].previous_output.txid;
@@ -196,9 +197,9 @@ async fn get_named_inputs_outputs(path: web::Path<(u8, String)>) -> impl Respond
                     return Err(e.to_string())
                 }
             };
-            let input_i_scrpub = hex::encode(prev_outpoint.script_pubkey.clone().into_bytes());
+            // let input_i_scrpub = hex::encode(prev_outpoint.script_pubkey.clone().into_bytes());
             let input_i_amount = prev_outpoint.value;
-            inputs.push((input_i_addr, input_i_scrpub, input_i_amount));
+            inputs.push((input_i_addr, input_i_amount));
         }
         for i in 0..tx.output.len() {
             let output_i_addr = match Address::from_script(&tx.output[i].script_pubkey, config::network()) {
@@ -208,9 +209,9 @@ async fn get_named_inputs_outputs(path: web::Path<(u8, String)>) -> impl Respond
                     return Err(e.to_string())
                 }
             };
-            let output_i_scrpub = hex::encode(tx.output[i].script_pubkey.clone().into_bytes());
+            // let output_i_scrpub = hex::encode(tx.output[i].script_pubkey.clone().into_bytes());
             let output_i_amount = tx.output[i].value;
-            outputs.push((output_i_addr, output_i_scrpub, output_i_amount));
+            outputs.push((output_i_addr, output_i_amount));
         }
         Ok((inputs, outputs))
     }
@@ -277,12 +278,12 @@ async fn get_named_inputs_outputs(path: web::Path<(u8, String)>) -> impl Respond
 
     let inputs = input_names.into_iter()
         .zip(inputs.into_iter())
-        .map(|(x,(y,z,k))| (x.to_string(),y,z,k))
+        .map(|(x,(y,z))| (x.to_string(),y,z))
         .collect();
 
     let outputs = output_names.into_iter()
         .zip(outputs.into_iter())
-        .map(|(x,(y,z,k))| (x.to_string(),y,z,k))
+        .map(|(x,(y,z))| (x.to_string(),y,z))
         .collect();
 
     let tx_name = tx_name.to_string();
@@ -674,7 +675,7 @@ async fn get_unsigned_pegin_tx(path: web::Path<i32>) -> impl Responder {
 
     let txid = pegin_tx.input[0].previous_output.txid;
     let vout = pegin_tx.input[0].previous_output.vout;
-    let value = match utils::get_utxo_value(&rpc, txid, vout) {
+    let (script_pubkey, value) = match utils::get_utxo_script_pubkey_value(&rpc, txid, vout) {
         Ok(v) => v,
         Err(e) => { 
             error!("/get-unsigned-pegin-tx/{workflow_id}: fail to get_utxo_value: {}",e);
@@ -684,6 +685,7 @@ async fn get_unsigned_pegin_tx(path: web::Path<i32>) -> impl Responder {
     let input = TxInput {
         txid,
         vout,
+        script_pubkey,
         value,
     };
 
@@ -885,7 +887,7 @@ async fn get_unsigned_kickoff1_tx(path: web::Path<i32>) -> impl Responder {
 
     let txid = kickoff_1_tx.input[0].previous_output.txid;
     let vout = kickoff_1_tx.input[0].previous_output.vout;
-    let value = match utils::get_utxo_value(&rpc, txid, vout) {
+    let (script_pubkey, value) = match utils::get_utxo_script_pubkey_value(&rpc, txid, vout) {
         Ok(v) => v,
         Err(e) => { 
             error!("/get-unsigned-kickoff1-tx/{workflow_id}: fail to get_utxo_value: {}",e);
@@ -895,6 +897,7 @@ async fn get_unsigned_kickoff1_tx(path: web::Path<i32>) -> impl Responder {
     let input = TxInput {
         txid,
         vout,
+        script_pubkey,
         value,
     };
 
