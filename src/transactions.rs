@@ -513,11 +513,10 @@ pub fn take_2(
     let verifier_contexts = config::get_verifier_contexts();
 
     let connector_0_vout = 0; 
-    let connector_0_amount = get_connector_0_amount();
-    // let connector_0_amount = match utils::get_utxo_value(rpc, peg_in_txid, connector_0_vout) {
-    //     Ok(v) => v,
-    //     Err(e) => return Err(format!("fail to get connector_0 value: {}", e))
-    // };
+    let connector_0_amount = match utils::get_utxo_value(rpc, peg_in_txid, connector_0_vout) {
+        Ok(v) => v,
+        Err(e) => return Err(format!("fail to get connector_0 value: {}", e))
+    };
     let take_2_input_0 = Input {
         outpoint: OutPoint {
             txid: peg_in_txid,
@@ -701,7 +700,7 @@ pub fn disprove(
 
 
 pub fn get_connector_0_amount() -> Amount {
-    Amount::from_sat(99980000)
+    Amount::from_sat(99990000)
 }
 pub fn get_connector_4_amount() -> Amount {
     Amount::from_sat(20000)
@@ -709,7 +708,6 @@ pub fn get_connector_4_amount() -> Amount {
 }
 pub fn get_connector_5_amount() -> Amount {
     Amount::from_sat(17690000)
-    
 }
 pub fn get_connector_b_amount() -> Amount {
     Amount::from_sat(18550000)
