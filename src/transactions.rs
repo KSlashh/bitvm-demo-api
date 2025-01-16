@@ -60,6 +60,7 @@ pub static REVEALERS_ADDRESS: Lazy<Vec<Address>> = Lazy::new(|| {
     get_revealers_address()
 });
 
+
 pub fn faucet(rpc: &Client, user_addr: &Address) -> Result<(OutPoint, OutPoint), String> {
     let faucet_1_amount = Amount::from_sat(config::PEGIN_AMOUNT);
     let faucet_2_amount = Amount::from_sat(config::KICKOFF_AMOUNT);
@@ -730,6 +731,27 @@ pub fn get_precomputed_connector_b_address() -> Address {
 }
 pub fn get_precomputed_connector_c_address() -> Address {
     Address::from_str(config::CONNECTOR_C_ADDRESS).unwrap().assume_checked()
+}
+pub fn get_connector_0_script_pubkey() -> String {
+    hex::encode(get_precomputed_connector_0_address().script_pubkey())
+}
+pub fn get_connector_4_script_pubkey() -> String {
+    hex::encode(get_precomputed_connector_4_address().script_pubkey())
+}
+pub fn get_connector_5_script_pubkey() -> String {
+    hex::encode(get_precomputed_connector_5_address().script_pubkey())
+}
+pub fn get_connector_b_script_pubkey() -> String {
+    hex::encode(get_precomputed_connector_b_address().script_pubkey())
+}
+pub fn get_connector_c_script_pubkey() -> String {
+    hex::encode(get_precomputed_connector_c_address().script_pubkey())
+}
+pub fn get_revealers_script_pubkey() -> Vec<String> {
+    REVEALERS_ADDRESS.clone()
+        .into_iter()
+        .map(|x| hex::encode(x.script_pubkey()))
+        .collect()
 }
 
 pub fn borrow_bitcom_lock_scripts() -> &'static Vec<Script> {
