@@ -386,9 +386,24 @@ async fn get_tx_inputs_outputs(path: web::Path<String>) -> impl Responder {
 #[post("/get-user-workflow/{user_address}")]
 async fn get_user_workflow(path: web::Path<String>) -> impl Responder {
     #[derive(Serialize)]
+    struct UserDataLite {
+        pub status: u8,
+        pub fake_index: Option<u32>,
+        pub faucet_1: Option<Txid>,
+        pub faucet_2: Option<Txid>,
+        pub pegin: Option<Txid>,
+        pub kickoff_1: Option<Txid>,
+        pub kickoff_2: Option<Txid>,
+        pub challenge: Option<Txid>,
+        pub assert: Option<Txid>,
+        pub disprove: Option<Txid>,
+        pub take_1: Option<Txid>,
+        pub take_2: Option<Txid>,
+    }
+    #[derive(Serialize)]
     struct ResponseStruct {
         workflow_id: i32,
-        workflow: sql::UserData,
+        workflow: UserDataLite,
     }
 
     let user_addr = path.into_inner();
@@ -443,6 +458,26 @@ async fn get_user_workflow(path: web::Path<String>) -> impl Responder {
             return HttpResponse::InternalServerError().body(e.to_string())
         }
     };
+    let workflow = UserDataLite {
+        status: workflow.status,
+        fake_index: workflow.fake_index,
+        faucet_1: match workflow.faucet_1 {
+            Some((txid, _)) => Some(txid),
+            _ => None,
+        },
+        faucet_2: match workflow.faucet_2 {
+            Some((txid, _)) => Some(txid),
+            _ => None,
+        },
+        pegin: workflow.pegin,
+        kickoff_1: workflow.kickoff_1,
+        kickoff_2: workflow.kickoff_2,
+        challenge: workflow.challenge,
+        assert: workflow.assert,
+        disprove: workflow.disprove,
+        take_1: workflow.take_1,
+        take_2: workflow.take_2,
+    };
 
     let body = serde_json::to_string_pretty(&ResponseStruct{workflow_id,workflow}).unwrap();
     info!("/get-user-workflow/{user_addr}: ok");
@@ -453,7 +488,21 @@ async fn get_user_workflow(path: web::Path<String>) -> impl Responder {
 
 #[get("/get-workflow-info/{workflow_id}")]
 async fn get_workflow_info(path: web::Path<i32>) -> impl Responder {
-    // type ResponseStruct = sql::UserData;
+    #[derive(Serialize)]
+    struct ResponseStruct {
+        pub status: u8,
+        pub fake_index: Option<u32>,
+        pub faucet_1: Option<Txid>,
+        pub faucet_2: Option<Txid>,
+        pub pegin: Option<Txid>,
+        pub kickoff_1: Option<Txid>,
+        pub kickoff_2: Option<Txid>,
+        pub challenge: Option<Txid>,
+        pub assert: Option<Txid>,
+        pub disprove: Option<Txid>,
+        pub take_1: Option<Txid>,
+        pub take_2: Option<Txid>,
+    }
 
     let workflow_id = path.into_inner();
     info!("new REQUEST: /get-workflow-info/{workflow_id}");
@@ -480,7 +529,28 @@ async fn get_workflow_info(path: web::Path<i32>) -> impl Responder {
         }
     };
 
-    let body = serde_json::to_string_pretty(&user_data).unwrap();
+    let workflow = ResponseStruct {
+        status: user_data.status,
+        fake_index: user_data.fake_index,
+        faucet_1: match user_data.faucet_1 {
+            Some((txid, _)) => Some(txid),
+            _ => None,
+        },
+        faucet_2: match user_data.faucet_2 {
+            Some((txid, _)) => Some(txid),
+            _ => None,
+        },
+        pegin: user_data.pegin,
+        kickoff_1: user_data.kickoff_1,
+        kickoff_2: user_data.kickoff_2,
+        challenge: user_data.challenge,
+        assert: user_data.assert,
+        disprove: user_data.disprove,
+        take_1: user_data.take_1,
+        take_2: user_data.take_2,
+    };
+
+    let body = serde_json::to_string_pretty(&workflow).unwrap();
     info!("/get-workflow-info/{workflow_id}: ok");
     HttpResponse::Ok()
         .content_type(ContentType::json())
