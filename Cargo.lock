@@ -1908,7 +1908,7 @@ dependencies = [
 [[package]]
 name = "bitvm"
 version = "0.1.0"
-source = "git+https://github.com/KSlashh/BitVM.git?branch=demo#b74792ac3128b079f80424ea03b651f83f8cbaec"
+source = "git+https://github.com/KSlashh/BitVM.git?branch=demo#5a05c60aaafcd4c2767910e70fe26395d1ba1d17"
 dependencies = [
  "alloy",
  "ark-bn254",

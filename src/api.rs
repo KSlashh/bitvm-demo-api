@@ -4,7 +4,7 @@ use bitvm::bridge::{connectors::{connector_c, revealer}, transactions::{kick_off
 use rusqlite::Connection;
 use serde::Serialize;
 use log::{info, warn, error};
-use crate::{sql::{self, UserData}, transactions, utils, config};
+use crate::{config, sql::{self, update_user_data, UserData}, transactions, utils};
 
 #[derive(Serialize)]
 struct TxInput {
@@ -804,6 +804,24 @@ async fn post_pegin_txid(path: web::Path<(i32, String)>) -> impl Responder {
         }
     };
 
+    match sql::is_workflow_locked(&db, workflow_id) {
+        Ok(v) => {
+            if v {
+                error!("/post-pegin-txid/{workflow_id}/{pegin_txid}: workflow:{workflow_id} is processing a task, please wait");
+                return HttpResponse::Locked().body("workflow:{workflow_id} is processing a task, please wait".to_string())
+            };
+        },
+        Err(e) => {
+            error!("/post-pegin-txid/{workflow_id}/{pegin_txid}: fail to get workflow lock: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
+    };
+
+    if let Err(e) = sql::lock_workflow(&db, workflow_id) {
+        error!("/post-pegin-txid/{workflow_id}/{pegin_txid}: fail to lock workflow: {}", e);
+        return HttpResponse::InternalServerError().body(e.to_string());
+    };
+
     let mut user_data = match sql::get_user_data(&db, workflow_id) {
         Ok(user_data_option) => { match user_data_option {
                 Some(data) => data,
@@ -832,6 +850,11 @@ async fn post_pegin_txid(path: web::Path<(i32, String)>) -> impl Responder {
         return HttpResponse::InternalServerError().body(e.to_string())
     }
 
+    if let Err(e) = sql::unlock_workflow(&db, workflow_id) {
+        error!("/post-pegin-txid/{workflow_id}/{pegin_txid}: fail to unlock workflow: {}", e);
+        return HttpResponse::InternalServerError().body(e.to_string())
+    };
+
     let body = serde_json::to_string_pretty(&ResponseStruct{success: true}).unwrap();
     info!("/post-pegin-txid/{workflow_id}/{pegin_txid}: ok");
     HttpResponse::Ok()
@@ -854,6 +877,24 @@ async fn post_fake_index(path: web::Path<(i32, u32)>) -> impl Responder {
             error!("/post-fake-index/{workflow_id}/{fake_index}: fail to connect db: {}",e);
             return HttpResponse::InternalServerError().body(e.to_string())
         }
+    };
+
+    match sql::is_workflow_locked(&db, workflow_id) {
+        Ok(v) => {
+            if v {
+                error!("/post-fake-index/{workflow_id}/{fake_index}: workflow:{workflow_id} is processing a task, please wait");
+                return HttpResponse::Locked().body("workflow:{workflow_id} is processing a task, please wait".to_string())
+            };
+        },
+        Err(e) => {
+            error!("/post-fake-index/{workflow_id}/{fake_index}: fail to get workflow lock: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
+    };
+
+    if let Err(e) = sql::lock_workflow(&db, workflow_id) {
+        error!("/post-fake-index/{workflow_id}/{fake_index}: fail to lock workflow: {}", e);
+        return HttpResponse::InternalServerError().body(e.to_string());
     };
 
     let mut user_data = match sql::get_user_data(&db, workflow_id) {
@@ -888,6 +929,11 @@ async fn post_fake_index(path: web::Path<(i32, u32)>) -> impl Responder {
         error!("/post-fake-index/{workflow_id}/{fake_index}: fail to update user data: {}",e);
         return HttpResponse::InternalServerError().body(e.to_string())
     }
+
+    if let Err(e) = sql::unlock_workflow(&db, workflow_id) {
+        error!("/post-fake-index/{workflow_id}/{fake_index}: fail to unlock workflow: {}", e);
+        return HttpResponse::InternalServerError().body(e.to_string());
+    };
 
     let body = serde_json::to_string_pretty(&ResponseStruct{success:true}).unwrap();
     info!("/post-fake-index/{workflow_id}/{fake_index}: ok");
@@ -1017,6 +1063,24 @@ async fn send_kickoff_2(path: web::Path<(i32, String)>) -> impl Responder {
         }
     };
 
+    match sql::is_workflow_locked(&db, workflow_id) {
+        Ok(v) => {
+            if v {
+                error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: workflow:{workflow_id} is processing a task, please wait");
+                return HttpResponse::Locked().body("workflow:{workflow_id} is processing a task, please wait".to_string())
+            };
+        },
+        Err(e) => {
+            error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: fail to get workflow lock: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
+    };
+
+    if let Err(e) = sql::lock_workflow(&db, workflow_id) {
+        error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: fail to lock workflow: {}", e);
+        return HttpResponse::InternalServerError().body(e.to_string());
+    };
+
     let mut user_data = match sql::get_user_data(&db, workflow_id) {
         Ok(user_data_option) => { match user_data_option {
                 Some(data) => data,
@@ -1054,7 +1118,7 @@ async fn send_kickoff_2(path: web::Path<(i32, String)>) -> impl Responder {
         }
     };
     let bitcom_lock_scripts = transactions::borrow_bitcom_lock_scripts();
-    let kick_off_2_txid = match transactions::kick_off_2(&rpc, kick_off_1_txid, bitcom_lock_scripts) {
+    let kick_off_2_txid = match transactions::kick_off_2(&rpc, kick_off_1_txid, bitcom_lock_scripts).await {
         Ok(v) => v,
         Err(e) => { 
             error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: fail to send kickoff2 tx: {}", e);
@@ -1069,6 +1133,11 @@ async fn send_kickoff_2(path: web::Path<(i32, String)>) -> impl Responder {
         error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: fail to update user data: {}", e);
         return HttpResponse::InternalServerError().body(e.to_string())
     }
+
+    if let Err(e) = sql::unlock_workflow(&db, workflow_id) {
+        error!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: fail to unlock workflow: {}", e);
+        return HttpResponse::InternalServerError().body(e.to_string());
+    };
 
     let body = serde_json::to_string_pretty(&ResponseStruct{kick_off_2_txid}).unwrap();
     info!("/send-kickoff2/{workflow_id}/{kickoff_1_txid}: ok");
@@ -1092,6 +1161,24 @@ async fn send_challenge(path: web::Path<i32>) -> impl Responder {
             error!("/send-challenge/{workflow_id}: fail to connect db: {}", e);
             return HttpResponse::InternalServerError().body(e.to_string())
         }
+    };
+
+    match sql::is_workflow_locked(&db, workflow_id) {
+        Ok(v) => {
+            if v {
+                error!("/send-challenge/{workflow_id}: workflow:{workflow_id} is processing a task, please wait");
+                return HttpResponse::Locked().body("workflow:{workflow_id} is processing a task, please wait".to_string())
+            };
+        },
+        Err(e) => {
+            error!("/send-challenge/{workflow_id}: fail to get workflow lock: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
+    };
+
+    if let Err(e) = sql::lock_workflow(&db, workflow_id) {
+        error!("/send-challenge/{workflow_id}: fail to lock workflow: {}", e);
+        return HttpResponse::InternalServerError().body(e.to_string());
     };
 
     let mut user_data = match sql::get_user_data(&db, workflow_id) {
@@ -1129,7 +1216,7 @@ async fn send_challenge(path: web::Path<i32>) -> impl Responder {
             return HttpResponse::InternalServerError().body(e.to_string())
         }
     };
-    let challenge_txid = match transactions::challenge(&rpc, kick_off_1_txid) {
+    let challenge_txid = match transactions::challenge(&rpc, kick_off_1_txid).await {
         Ok(v) => v,
         Err(e) => { 
             error!("/send-challenge/{workflow_id}: fail to send challenge tx: {}", e);
@@ -1144,6 +1231,11 @@ async fn send_challenge(path: web::Path<i32>) -> impl Responder {
         error!("/send-challenge/{workflow_id}: fail to update user data: {}", e);
         return HttpResponse::InternalServerError().body(e.to_string())
     }
+
+    if let Err(e) = sql::unlock_workflow(&db, workflow_id) {
+        error!("/send-challenge/{workflow_id}: fail to unlock workflow: {}", e);
+        return HttpResponse::InternalServerError().body(e.to_string());
+    };
 
     let body = serde_json::to_string_pretty(&ResponseStruct{challenge_txid}).unwrap();
     info!("/send-challenge/{workflow_id}: ok");
@@ -1167,6 +1259,24 @@ async fn send_take_1(path: web::Path<i32>) -> impl Responder {
             error!("/send-take1/{workflow_id}: fail to connect db: {}", e);
             return HttpResponse::InternalServerError().body(e.to_string())
         }
+    };
+
+    match sql::is_workflow_locked(&db, workflow_id) {
+        Ok(v) => {
+            if v {
+                error!("/send-take1/{workflow_id}: workflow:{workflow_id} is processing a task, please wait");
+                return HttpResponse::Locked().body("workflow:{workflow_id} is processing a task, please wait".to_string())
+            };
+        },
+        Err(e) => {
+            error!("/send-take1/{workflow_id}: fail to get workflow lock: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
+    };
+
+    if let Err(e) = sql::lock_workflow(&db, workflow_id) {
+        error!("/send-take1/{workflow_id}: fail to lock workflow: {}", e);
+        return HttpResponse::InternalServerError().body(e.to_string());
     };
 
     let mut user_data = match sql::get_user_data(&db, workflow_id) {
@@ -1233,7 +1343,7 @@ async fn send_take_1(path: web::Path<i32>) -> impl Responder {
             return HttpResponse::InternalServerError().body(e.to_string())
         }
     };
-    let take_1_txid = match transactions::take_1(&rpc, peg_in_txid, kick_off_1_txid, kick_off_2_txid, user_address) {
+    let take_1_txid = match transactions::take_1(&rpc, peg_in_txid, kick_off_1_txid, kick_off_2_txid, user_address).await {
         Ok(v) => v,
         Err(e) => { 
             error!("/send-take1/{workflow_id}: fail to send take1 tx: {}", e);
@@ -1248,6 +1358,11 @@ async fn send_take_1(path: web::Path<i32>) -> impl Responder {
         error!("/send-take1/{workflow_id}: fail to update user data: {}", e);
         return HttpResponse::InternalServerError().body(e.to_string())
     }
+
+    if let Err(e) = sql::unlock_workflow(&db, workflow_id) {
+        error!("/send-take1/{workflow_id}: fail to unlock workflow: {}", e);
+        return HttpResponse::InternalServerError().body(e.to_string());
+    };
 
     let body = serde_json::to_string_pretty(&ResponseStruct{take_1_txid}).unwrap();
     info!("/send-take1/{workflow_id}: ok");
@@ -1271,6 +1386,24 @@ async fn send_assert(path: web::Path<i32>) -> impl Responder {
             error!("/send-assert/{workflow_id}: fail to connect db: {}", e);
             return HttpResponse::InternalServerError().body(e.to_string())
         }
+    };
+
+    match sql::is_workflow_locked(&db, workflow_id) {
+        Ok(v) => {
+            if v {
+                error!("/send-assert/{workflow_id}: workflow:{workflow_id} is processing a task, please wait");
+                return HttpResponse::Locked().body("workflow:{workflow_id} is processing a task, please wait".to_string())
+            };
+        },
+        Err(e) => {
+            error!("/send-assert/{workflow_id}: fail to get workflow lock: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
+    };
+
+    if let Err(e) = sql::lock_workflow(&db, workflow_id) {
+        error!("/send-assert/{workflow_id}: fail to lock workflow: {}", e);
+        return HttpResponse::InternalServerError().body(e.to_string());
     };
 
     let user_data = match sql::get_user_data(&db, workflow_id) {
@@ -1334,10 +1467,15 @@ async fn send_assert(path: web::Path<i32>) -> impl Responder {
         user_data.status = sql::STATUS::ASSERT as u8;
         user_data.assert = Some(assert_txid);
 
-        match sql::update_user_data(&db, workflow_id, &user_data) {
-            Ok(_) => Ok(assert_txid),
-            Err(e) => return Err(e.to_string())
-        }
+        if let Err(e) = sql::update_user_data(&db, workflow_id, &user_data) {
+            return Err(e.to_string())
+        };
+
+        if let Err(e) = sql::unlock_workflow(&db, workflow_id) {
+            return Err(e.to_string())
+        };
+
+        Ok(assert_txid)
     }
 
     let task = tokio::spawn(async move {
@@ -1380,6 +1518,24 @@ async fn send_take_2(path: web::Path<i32>) -> impl Responder {
             error!("/send-take2/{workflow_id}: fail to connect db: {}", e);
             return HttpResponse::InternalServerError().body(e.to_string())
         }
+    };
+
+    match sql::is_workflow_locked(&db, workflow_id) {
+        Ok(v) => {
+            if v {
+                error!("/send-take2/{workflow_id}: workflow:{workflow_id} is processing a task, please wait");
+                return HttpResponse::Locked().body("workflow:{workflow_id} is processing a task, please wait".to_string())
+            };
+        },
+        Err(e) => {
+            error!("/send-take2/{workflow_id}: fail to get workflow lock: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
+    };
+
+    if let Err(e) = sql::lock_workflow(&db, workflow_id) {
+        error!("/send-take2/{workflow_id}: fail to lock workflow: {}", e);
+        return HttpResponse::InternalServerError().body(e.to_string());
     };
 
     let user_data = match sql::get_user_data(&db, workflow_id) {
@@ -1452,7 +1608,7 @@ async fn send_take_2(path: web::Path<i32>) -> impl Responder {
         };
         let connector_c_addr = Some(transactions::get_precomputed_connector_c_address());
         let connector_c_tapscripts = transactions::borrow_assert_tapscripts();
-        let take_2_txid = match transactions::take_2(&rpc, peg_in_txid, assert_txid, connector_c_tapscripts, connector_c_addr, user_address) {
+        let take_2_txid = match transactions::take_2(&rpc, peg_in_txid, assert_txid, connector_c_tapscripts, connector_c_addr, user_address).await {
             Ok(v) => v,
             Err(e) => return Err(e.to_string()),
         };
@@ -1460,10 +1616,15 @@ async fn send_take_2(path: web::Path<i32>) -> impl Responder {
         user_data.status = sql::STATUS::TAKE2 as u8;
         user_data.take_2 = Some(take_2_txid);
     
-        match sql::update_user_data(&db, workflow_id, &user_data) {
-            Ok(_) => Ok(take_2_txid),
-            Err(e) => return Err(e.to_string())
-        }
+        if let Err(e) = sql::update_user_data(&db, workflow_id, &user_data) {
+            return Err(e.to_string())
+        };
+
+        if let Err(e) = sql::unlock_workflow(&db, workflow_id) {
+            return Err(e.to_string())
+        };
+
+        Ok(take_2_txid)
     }
 
     let task = tokio::spawn(async move {
@@ -1506,6 +1667,24 @@ async fn send_disprove(path: web::Path<i32>) -> impl Responder {
             error!("/send-disprove/{workflow_id}: fail to connect db: {}", e);
             return HttpResponse::InternalServerError().body(e.to_string())
         }
+    };
+
+    match sql::is_workflow_locked(&db, workflow_id) {
+        Ok(v) => {
+            if v {
+                error!("/send-disprove/{workflow_id}: workflow:{workflow_id} is processing a task, please wait");
+                return HttpResponse::Locked().body("workflow:{workflow_id} is processing a task, please wait".to_string())
+            };
+        },
+        Err(e) => {
+            error!("/send-disprove/{workflow_id}: fail to get workflow lock: {}", e);
+            return HttpResponse::InternalServerError().body(e.to_string())
+        }
+    };
+
+    if let Err(e) = sql::lock_workflow(&db, workflow_id) {
+        error!("/send-disprove/{workflow_id}: fail to lock workflow: {}", e);
+        return HttpResponse::InternalServerError().body(e.to_string());
     };
 
     let user_data = match sql::get_user_data(&db, workflow_id) {
@@ -1562,7 +1741,7 @@ async fn send_disprove(path: web::Path<i32>) -> impl Responder {
             Some(i) => i as usize,
             _ => return Err("can not disprove valid assert".to_string()),
         };
-        let disprove_txid = match transactions::disprove(&rpc, assert_txid, connector_c_tapscripts, connector_c_addr, Some(fake_index)) {
+        let disprove_txid = match transactions::disprove(&rpc, assert_txid, connector_c_tapscripts, connector_c_addr, Some(fake_index)).await {
             Ok(v) => v,
             Err(e) => return Err(e.to_string())
         };
@@ -1570,10 +1749,16 @@ async fn send_disprove(path: web::Path<i32>) -> impl Responder {
         user_data.status = sql::STATUS::DISPROVE as u8;
         user_data.disprove = Some(disprove_txid);
     
-        match sql::update_user_data(&db, workflow_id, &user_data) {
-            Ok(_) => Ok(disprove_txid),
-            Err(e) => return Err(e.to_string())
-        }
+        
+        if let Err(e) = sql::update_user_data(&db, workflow_id, &user_data) {
+            return Err(e.to_string())
+        };
+
+        if let Err(e) = sql::unlock_workflow(&db, workflow_id) {
+            return Err(e.to_string())
+        };
+
+        Ok(disprove_txid)
     }
 
     let task = tokio::spawn(async move {
@@ -1590,7 +1775,7 @@ async fn send_disprove(path: web::Path<i32>) -> impl Responder {
                     .body(body)
             },
             Err(e) => {
-                error!("/send-disprove/{workflow_id}: fail to prepare & send disprove tx: {}",e);
+                error!("/send-disprove/{workflow_id}: fail to prepare & send disprove: {}",e);
                 HttpResponse::InternalServerError().body(e.to_string())
             }
         },

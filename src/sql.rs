@@ -43,7 +43,8 @@ pub fn open_db() -> Result<Connection, String> {
         "CREATE TABLE IF NOT EXISTS workflow (
             id      INTEGER PRIMARY KEY,
             addr    TEXT NOT NULL,
-            data    TEXT
+            data    TEXT,
+            lock    INTEGER NOT NULL
         )", 
         []);
     match create_res {
@@ -109,10 +110,11 @@ pub fn new_user(db: &Connection, addr: &Address) -> Result<i32, String> {
         take_2: None,
     };
     let insert_res = db.execute(
-        "INSERT INTO workflow (addr, data) values (?1, ?2)", 
-        [
+        "INSERT INTO workflow (addr, data, lock) values (?1, ?2, ?3)", 
+        params![
             serde_json::to_string(&addr).unwrap(),
-            serde_json::to_string(&user_data).unwrap()
+            serde_json::to_string(&user_data).unwrap(),
+            0
         ]);
     match insert_res {
         Ok(_) => {
@@ -131,3 +133,41 @@ pub fn update_user_data(db: &Connection, id: i32, data: &UserData) -> Result<boo
         Err(e) => Err(format!("fail to update data: {}", e))
     }
 }
+
+pub fn is_workflow_locked(db: &Connection, id: i32) -> Result<bool, String> {
+    let mut stmt = match db.prepare("SELECT lock FROM workflow WHERE id = ?1") {
+        Ok(v) => v,
+        Err(e) => return Err(format!("fail to prepare select: {}", e))
+    };
+    let workflow_lock: i32 = match stmt.query_row(params![id], |row| row.get(0)).optional() {
+        Ok(v) => match v {
+            Some(s) => s,
+            _ => 0,
+        },
+        Err(e) => return Err(format!("fail to query db: {}", e))
+    };
+    Ok(workflow_lock != 0)
+}
+
+pub fn lock_workflow(db: &Connection, id: i32) -> Result<bool, String> {
+    match is_workflow_locked(db, id) {
+        Ok(v) => {
+            if v {
+                return Err(format!("already locked"))
+            };
+        },
+        Err(e) => return Err(format!("fail to read lock: {}", e))
+    };
+    match db.execute("UPDATE workflow SET lock = ?1 WHERE id = ?2", params![1, id]) {
+        Ok(_) => Ok(true),
+        Err(e) => Err(format!("fail to lock workflow: {}", e))
+    }
+}
+
+pub fn unlock_workflow(db: &Connection, id: i32) -> Result<bool, String> {
+    match db.execute("UPDATE workflow SET lock = ?1 WHERE id = ?2", params![0, id]) {
+        Ok(_) => Ok(true),
+        Err(e) => Err(format!("fail to unlock workflow: {}", e))
+    }
+}
+

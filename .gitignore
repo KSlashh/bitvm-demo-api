@@ -10,5 +10,6 @@ target/
 
 data-dir/*
 !data-dir/dummy_proof.json
+!data-dir/disprove.gz
 
 logs/*

@@ -1,12 +1,12 @@
 use bitcoin::{
-    Address, Amount, OutPoint, Transaction, Txid, 
+    Address, Amount, OutPoint, Transaction, Txid, taproot::TaprootSpendInfo,
     XOnlyPublicKey, absolute, TxIn, TxOut, ScriptBuf, Witness, Sequence
 };
 use bitcoincore_rpc::Client;
 use bitvm::bridge::connectors::connector_0;
 use bitvm::bridge::contexts::operator;
 use bitvm::bridge::transactions::pre_signed::PreSignedTransaction;
-use std::str::FromStr;
+use std::str::FromStr;  
 use bitvm::treepp::*;
 use bitvm::bridge::{
     connectors::{
@@ -58,6 +58,10 @@ pub static BITCOM_UNLOCK_SCRIPTS: Lazy<Vec<Script>> = Lazy::new(|| {
 pub static REVEALERS_ADDRESS: Lazy<Vec<Address>> = Lazy::new(|| {
     info!("load revealers' address");
     get_revealers_address()
+});
+pub static CONNECTOR_C_SPEND_INFO: Lazy<TaprootSpendInfo> = Lazy::new(|| {
+    info!("load connector_c's spend_info");
+    get_connector_c_spend_info()
 });
 
 
@@ -163,7 +167,7 @@ pub fn kickoff_1_prepare(rpc: &Client, faucet_2_txid: Txid, faucet_2_vout: u32) 
     })
 }
 
-pub fn kick_off_2(rpc: &Client, kick_off_1_txid: Txid, bitcom_lock_scripts: &Vec<Script>) -> Result<Txid, String> {
+pub async fn kick_off_2(rpc: &Client, kick_off_1_txid: Txid, bitcom_lock_scripts: &Vec<Script>) -> Result<Txid, String> {
     let operator_context = config::get_operator_context();
     let connector_1_vout = 1;
     let connector_1_amount = match utils::get_utxo_value(rpc, kick_off_1_txid, connector_1_vout) {
@@ -188,9 +192,11 @@ pub fn kick_off_2(rpc: &Client, kick_off_1_txid: Txid, bitcom_lock_scripts: &Vec
     if let Err(e) = utils::broadcast_tx(rpc, &tx) {
         return Err(format!("fail to broadcast kickoff_2 tx: {}", e))
     };
+    wait_tx().await;
     if let Err(e) = utils::mint_block(rpc, 1) {
         return Err(format!("fail to mint block: {}", e))
     };
+    wait_tx().await;
     match utils::validate_tx(rpc, kick_off_1_txid) {
         Ok(valid) => {
             if !valid { 
@@ -279,7 +285,7 @@ pub fn kick_off_1(rpc: &Client) -> Txid {
 }
 
 // return: (take_1_txid, take_1_tx_weight)
-pub fn take_1(rpc: &Client, peg_in_txid: Txid, kick_off_1_txid: Txid, kick_off_2_txid: Txid, receive_address: Address) -> Result<Txid, String> {
+pub async fn take_1(rpc: &Client, peg_in_txid: Txid, kick_off_1_txid: Txid, kick_off_2_txid: Txid, receive_address: Address) -> Result<Txid, String> {
     let operator_context = config::get_operator_context();
     let verifier_contexts = config::get_verifier_contexts();
 
@@ -352,9 +358,11 @@ pub fn take_1(rpc: &Client, peg_in_txid: Txid, kick_off_1_txid: Txid, kick_off_2
     if let Err(e) = utils::broadcast_tx(rpc, &tx) {
         return Err(format!("fail to broadcast take_1 tx: {}", e))
     };
+    wait_tx().await;
     if let Err(e) = utils::mint_block(rpc, 1) {
         return Err(format!("fail to mint block: {}", e))
     };
+    wait_tx().await;
     match utils::validate_tx(rpc, take_1_txid) {
         Ok(valid) => {
             if !valid { 
@@ -367,7 +375,7 @@ pub fn take_1(rpc: &Client, peg_in_txid: Txid, kick_off_1_txid: Txid, kick_off_2
 }
 
 // return: (challenge_txid, challenge_tx_weight)
-pub fn challenge(rpc: &Client, kick_off_1_txid: Txid) -> Result<Txid, String> {
+pub async fn challenge(rpc: &Client, kick_off_1_txid: Txid) -> Result<Txid, String> {
     let depositor_context = config::get_depositor_context();
     let operator_context = config::get_operator_context();
     let connector_a_vout = 0;
@@ -413,9 +421,11 @@ pub fn challenge(rpc: &Client, kick_off_1_txid: Txid) -> Result<Txid, String> {
     if let Err(e) = utils::broadcast_tx(rpc, &tx) {
         return Err(format!("fail to broadcast challenge tx: {}", e))
     };
+    wait_tx().await;
     if let Err(e) = utils::mint_block(rpc, 1) {
         return Err(format!("fail to mint block: {}", e))
     };
+    wait_tx().await;
     match utils::validate_tx(rpc, challenge_txid) {
         Ok(valid) => {
             if !valid { 
@@ -501,7 +511,7 @@ pub async fn assert(
 }   
 
 // return: take_2_txid
-pub fn take_2(
+pub async fn take_2(
     rpc: &Client, 
     peg_in_txid: Txid, 
     assert_txid: Txid, 
@@ -572,6 +582,7 @@ pub fn take_2(
         Some(addr) => connector_c.import_taproot_address(addr),
         _ => { connector_c.gen_taproot_address(); },
     };
+    connector_c.import_spend_info(&CONNECTOR_C_SPEND_INFO);
 
     let mut take_2_tx = Take2Transaction::new_for_designated_receiver(
         &operator_context,
@@ -594,9 +605,11 @@ pub fn take_2(
     if let Err(e) = utils::broadcast_tx(rpc, &tx) {
         return Err(format!("fail to broadcast take_2 tx: {}", e))
     };
+    wait_tx().await;
     if let Err(e) = utils::mint_block(rpc, 1) {
         return Err(format!("fail to mint block: {}", e))
     };
+    wait_tx().await;
     match utils::validate_tx(rpc, take_2_txid) {
         Ok(valid) => {
             if !valid { 
@@ -609,7 +622,7 @@ pub fn take_2(
 }
 
 // return (disprove_txid, disprove_tx_weight)
-pub fn disprove(
+pub async fn disprove(
     rpc: &Client, 
     assert_txid: Txid, 
     connector_c_tapscripts: &Vec<Script>,
@@ -652,6 +665,7 @@ pub fn disprove(
         Some(addr) => connector_c.import_taproot_address(addr),
         _ => { connector_c.gen_taproot_address(); },
     };
+    connector_c.import_spend_info(&CONNECTOR_C_SPEND_INFO);
 
     let (leaf_index, hint_script) = match validate_assert_bitcom(rpc, assert_txid, fake_index) {
         Ok(res) => match res {
@@ -686,6 +700,8 @@ pub fn disprove(
     let tx = disprove_tx.finalize();
     let disprove_txid = tx.compute_txid();
     let _ = utils::broadcast_tx(rpc, &tx);
+    wait_tx().await;
+    let _ = utils::mint_block(rpc, 1);
     let _ = utils::mint_block(rpc, 1);
     match utils::validate_tx(rpc, disprove_txid) {
         Ok(valid) => {
@@ -751,6 +767,14 @@ pub fn get_revealers_script_pubkey() -> Vec<String> {
         .map(|x| hex::encode(x.script_pubkey()))
         .collect()
 }
+pub fn get_connector_c_spend_info() -> TaprootSpendInfo {
+    let operator_context = config::get_operator_context();
+    let connector_c_address = get_precomputed_connector_c_address();
+    let connector_c_tapscripts = borrow_assert_tapscripts();
+    let mut connector_c = ConnectorC::new(network(), &operator_context.operator_taproot_public_key, connector_c_tapscripts);
+    connector_c.import_taproot_address(connector_c_address);
+    connector_c.generate_taproot_spend_info()
+}
 
 pub fn borrow_bitcom_lock_scripts() -> &'static Vec<Script> {
     &BITCOM_LOCK_SCRIPTS
@@ -796,6 +820,12 @@ pub fn validate_assert_bitcom(rpc: &Client, assert_txid: Txid, fake_index: Optio
         *res = validate_assertions(&vk, signed_asserts, inpubkeys);
     }
 
+    if let Some(index) = fake_index {
+        if let Ok(v) = load_disprove_node_from_file(index) {
+            return Ok(Some(v))
+        };
+    };
+
     let signed_assertions = match fake_index {
         Some(index) => {
             let mut ss = get_signed_assertions();
@@ -821,6 +851,31 @@ pub fn extract_signed_assertions(rpc: &Client, assert_txid: Txid) -> Result<Wots
         Ok(raw_assert_tx) => Ok(extract_signed_assertions_from_assert_tx(raw_assert_tx)),
         Err(e) => Err(format!("fail to get raw assert tx: {}", e))
     }
+}
+
+fn load_disprove_node_from_file(fake_index: usize) -> Result<(usize, Script), String> {
+    use std::fs::OpenOptions;
+    use std::io::{Write, BufReader, BufRead};
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct DisproveInput {
+        leaf_index: usize,
+        hint_script: Vec<u8>,   
+    }
+
+    let res_file_name = &format!("{}/disprove_{fake_index}.json", config::PRE_COMPUTED_DISPROVE_PATH);
+    let file = match OpenOptions::new().read(true).open(res_file_name) {
+        Ok(f) => f,
+        Err(e) => return Err(format!("fail to open {res_file_name}: {}",e)),
+    };
+    let reader = BufReader::new(file);
+    let res: DisproveInput = match serde_json::from_reader(reader) {
+        Ok(v) => v,
+        Err(e) => return Err(format!("fail to deserialize {res_file_name}: {}",e)),
+    };
+    let hint_script = script! {};
+    let bf = ScriptBuf::from_bytes(res.hint_script);
+    let hint_script = hint_script.push_script(bf);
+    Ok((res.leaf_index, hint_script))
 }
 
 fn get_wots_keys() -> (WotsPublicKeys, WotsSecretKeys) {

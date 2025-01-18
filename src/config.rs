@@ -18,14 +18,13 @@ pub const RPC_URL: &str = "http://127.0.0.1:18443/wallet/public-test";
 pub const PROOF_PATH: &str = "data-dir/dummy_proof.json";
 pub const COMPILE_PATH: &str = "data-dir/compile";
 pub const TAPSCRIPT_PATH: &str = "data-dir/tapscripts";
-pub const TAPSCRIPT_FILE_PATH: &str = "data-dir/tapscripts.json";
 pub const WOTS_SIGNATURE_PATH: &str = "data-dir/signed_assertions";
-pub const WOTS_SIGNATURE_FILE_PATH: &str = "data-dir/signed_assertions.json";
+pub const PRE_COMPUTED_DISPROVE_PATH: &str = "data-dir/disprove";
 pub const WOTS_SECRET: &str = "a138982ce17ac813d505a5b40b665d404e9528e7"; // just for test
 pub const N_TAPLEAVES: usize = g16::N_TAPLEAVES;
 pub const N_ASSERTIONS: usize = g16::N_VERIFIER_PUBLIC_INPUTS + g16::N_VERIFIER_FQS + g16::N_VERIFIER_HASHES;
 
-pub const TX_WAIT_TIME: u64 = 5; // in seconds
+pub const TX_WAIT_TIME: u64 = 1; // in seconds
 pub const PEGIN_AMOUNT: u64 = 100_000_000;
 pub const KICKOFF_AMOUNT: u64 = 20_000_000;
 pub const CHALLENGE_AMOUNT: u64 = 10_000_000;
